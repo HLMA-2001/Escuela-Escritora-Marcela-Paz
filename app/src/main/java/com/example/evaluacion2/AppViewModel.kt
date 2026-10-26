@@ -18,7 +18,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val db = AppDatabase.get(app)
     private val prefs = app.getSharedPreferences("session", Context.MODE_PRIVATE)
 
-    // null = todavía decidiendo; luego "home", "login" o "register"
     private val _startRoute = MutableStateFlow<String?>(null)
     val startRoute: StateFlow<String?> = _startRoute.asStateFlow()
 
@@ -37,13 +36,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val user = if (id != -1) db.userDao().findById(id) else null
 
             if (user != null) {
-                // Hay una sesión guardada y el usuario existe
+
                 _userName.value = user.name
                 _userRut.value = user.rut
                 _photoPath.value = loadPhotoPath()
                 _startRoute.value = "home"
             } else {
-                // Sin sesión (o la cuenta ya no existe): limpiamos y decidimos
+
                 prefs.edit().remove("userId").remove("userName").apply()
                 _startRoute.value = if (db.userDao().count() == 0) "register" else "login"
             }
@@ -70,7 +69,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         viewModelScope.launch {
             val mail = email.trim().lowercase()
-            val cleanRut = Validators.formatRut(rut)   // se guarda siempre con el mismo formato
+            val cleanRut = Validators.formatRut(rut)
 
             if (db.userDao().findByRut(cleanRut) != null) {
                 onResult("Ese RUT ya está registrado")

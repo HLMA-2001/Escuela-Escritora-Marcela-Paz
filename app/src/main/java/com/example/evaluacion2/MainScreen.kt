@@ -7,7 +7,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,7 +54,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -66,6 +64,19 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.MediaStore
+import android.provider.Settings
+import android.widget.Toast
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
@@ -150,22 +161,61 @@ private fun loadBitmap(path: String): ImageBitmap? {
 
 @Composable
 private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
+    val context = LocalContext.current
     val name by vm.userName.collectAsStateWithLifecycle()
     val rut by vm.userRut.collectAsStateWithLifecycle()
     val photoPath by vm.photoPath.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
-    // Se vuelve a cargar cada vez que cambia la ruta de la foto
+    val permission = Manifest.permission.READ_MEDIA_IMAGES
+
     val bitmap by produceState<ImageBitmap?>(null, photoPath) {
         value = photoPath?.let { path ->
             withContext(Dispatchers.IO) { loadBitmap(path) }
         }
     }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { vm.setProfilePhoto(it) } }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.data?.let { vm.setProfilePhoto(it) }
+    }
+
+    val openGallery = {
+        galleryLauncher.launch(
+            Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+        )
+    }
+
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            openGallery()
+        } else {
+            val activity = context as? Activity
+            val blocked = activity != null &&
+                    !ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
+            if (blocked) {
+                showSettingsDialog = true   // el usuario marcó "no preguntar más"
+            } else {
+                Toast.makeText(
+                    context, "Necesitas dar permiso para elegir una foto", Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
+
+    val onPhotoClick = {
+        val granted = ContextCompat.checkSelfPermission(context, permission) ==
+                PackageManager.PERMISSION_GRANTED
+        if (granted) openGallery() else permissionLauncher.launch(permission)
+    }
 
     Column(
         Modifier.fillMaxSize().padding(16.dp),
@@ -174,16 +224,13 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
         AnimatedVisibility(visible, enter = fadeIn() + slideInVertically { it / 4 }) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
 
+
                 Box(
                     Modifier
                         .size(150.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .clickable {
-                            picker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
+                        .clickable { onPhotoClick() },
                     contentAlignment = Alignment.Center
                 ) {
                     val img = bitmap
@@ -197,7 +244,6 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
                     } else {
                         Icon(Icons.Default.Person, null, Modifier.size(96.dp))
                     }
-
                     Box(
                         Modifier
                             .align(Alignment.BottomEnd)
@@ -216,11 +262,7 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "Toca la foto para cambiarla",
-                    style = MaterialTheme.typography.bodySmall
-                )
-
+                Text("Toca la foto para cambiarla", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(24.dp))
 
 
@@ -250,5 +292,28 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Cerrar sesión")
         }
+    }
+
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = { Text("Permiso necesario") },
+            text = {
+                Text("Para elegir una foto debes permitir el acceso a tus imágenes en los ajustes de la app.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSettingsDialog = false
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        }
+                    )
+                }) { Text("Abrir ajustes") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSettingsDialog = false }) { Text("Cancelar") }
+            }
+        )
     }
 }

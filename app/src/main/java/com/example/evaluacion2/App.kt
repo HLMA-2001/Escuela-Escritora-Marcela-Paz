@@ -1,5 +1,6 @@
 package com.example.evaluacion2
 
+import android.widget.Toast
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -10,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -32,6 +34,7 @@ fun App(vm: AppViewModel) {
 @Composable
 private fun AppNavigation(vm: AppViewModel, startRoute: String) {
     val nav = rememberNavController()
+    val context = LocalContext.current
 
     NavHost(
         navController = nav,
@@ -42,7 +45,10 @@ private fun AppNavigation(vm: AppViewModel, startRoute: String) {
         composable("login") {
             LoginScreen(
                 vm,
-                onSuccess = { nav.navigate("home") { popUpTo(0) } },
+                onSuccess = {
+                    Toast.makeText(context, "Sesión iniciada correctamente", Toast.LENGTH_SHORT).show()
+                    nav.navigate("welcome") { popUpTo(0) }
+                },
                 onRegister = { nav.navigate("register") }
             )
         }
@@ -51,9 +57,15 @@ private fun AppNavigation(vm: AppViewModel, startRoute: String) {
                 nav.navigate("login") { popUpTo(0) }
             })
         }
+        composable("welcome") {
+            WelcomeScreen(vm, onFinish = {
+                nav.navigate("home") { popUpTo(0) }
+            })
+        }
         composable("home") {
             MainScreen(vm, onLogout = {
                 vm.logout()
+                Toast.makeText(context, "Sesión cerrada", Toast.LENGTH_SHORT).show()
                 nav.navigate("login") { popUpTo(0) }
             })
         }

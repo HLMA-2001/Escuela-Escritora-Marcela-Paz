@@ -131,7 +131,7 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
             value = rut,
             onValueChange = { v ->
                 val c = Validators.cleanRut(v)
-                if (c.length <= 9) rut = c      // se guarda limpio, sin puntos ni guion
+                if (c.length <= 9) rut = c
             },
             label = { Text("RUT") }, singleLine = true,
             placeholder = { Text("12.345.678-5") },
@@ -194,7 +194,7 @@ fun WelcomeScreen(vm: AppViewModel, onFinish: () -> Unit) {
 
     LaunchedEffect(Unit) {
         visible = true
-        delay(2500)   // duración del saludo en milisegundos
+        delay(2500)
         onFinish()
     }
 

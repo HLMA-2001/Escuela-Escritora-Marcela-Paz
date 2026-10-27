@@ -19,7 +19,7 @@ object Validators {
     }
     private val EMAIL_REGEX = Regex("^[A-Za-z]+([._%+-][A-Za-z0-9]+)*@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}$")
     private val ALLOWED_DOMAINS = listOf(
-        "gmail.com", "duoc.cl", "outlook.com", "hotmail.com"
+        "gmail.com", "duoc.cl", "outlook.com", "hotmail.com", "duocuc.cl"
     )
     private val REPEATED_REGEX = Regex("(.)\\1{2,}")
 

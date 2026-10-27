@@ -59,7 +59,6 @@ object Validators {
 
     fun cleanRut(v: String): String =
         v.filter { it.isDigit() || it == 'k' || it == 'K' }.uppercase()
-    
     fun formatRut(v: String): String {
         val c = cleanRut(v)
         if (c.length < 2) return c
@@ -75,7 +74,6 @@ object Validators {
 
         val body = c.dropLast(1)
         if (!body.all { it.isDigit() }) return "La K solo puede ir al final"
-        
         var sum = 0
         var factor = 2
         for (d in body.reversed()) {

@@ -198,7 +198,7 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
             value = rut,
             onValueChange = { v ->
                 val c = Validators.cleanRut(v)
-                if (c.length <= 9) rut = c     
+                if (c.length <= 9) rut = c
             },
             label = { Text("RUT") }, singleLine = true,
             placeholder = { Text("12.345.678-5") },

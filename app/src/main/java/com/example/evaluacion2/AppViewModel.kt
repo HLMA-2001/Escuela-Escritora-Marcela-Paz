@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
 
@@ -36,13 +37,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val user = if (id != -1) db.userDao().findById(id) else null
 
             if (user != null) {
-
                 _userName.value = user.name
                 _userRut.value = user.rut
                 _photoPath.value = loadPhotoPath()
                 _startRoute.value = "home"
             } else {
-
                 prefs.edit().remove("userId").remove("userName").apply()
                 _startRoute.value = if (db.userDao().count() == 0) "register" else "login"
             }
@@ -65,6 +64,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         rut: String,
         email: String,
         pass: String,
+        docs: List<PickedDoc>,
         onResult: (String?) -> Unit
     ) {
         viewModelScope.launch {
@@ -79,9 +79,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 onResult("Ese correo ya está registrado")
                 return@launch
             }
-            db.userDao().insert(
+
+            val userId = db.userDao().insert(
                 User(name = name.trim(), rut = cleanRut, email = mail, passwordHash = hash(pass))
-            )
+            ).toInt()
+
+            withContext(Dispatchers.IO) {
+                val ctx = getApplication<Application>()
+                val dir = File(ctx.filesDir, "docs/$userId").apply { mkdirs() }
+                docs.forEach { doc ->
+                    try {
+                        val dest = File(dir, "${System.currentTimeMillis()}_${doc.name}")
+                        ctx.contentResolver.openInputStream(doc.uri)?.use { input ->
+                            dest.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        val mime = ctx.contentResolver.getType(doc.uri) ?: "application/octet-stream"
+                        db.fileDao().insert(
+                            StoredFile(
+                                ownerId = userId,
+                                displayName = doc.name,
+                                path = dest.absolutePath,
+                                mimeType = mime,
+                                sizeBytes = dest.length()
+                            )
+                        )
+                    } catch (e: Exception) {
+                    }
+                }
+            }
             onResult(null)
         }
     }
@@ -102,7 +127,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun logout() {
-        // Solo borramos la sesión; la foto de cada usuario se conserva
         prefs.edit().remove("userId").remove("userName").apply()
         _userName.value = ""
         _userRut.value = ""

@@ -26,6 +26,16 @@ data class User(
     val passwordHash: String
 )
 
+@Entity(tableName = "files")
+data class StoredFile(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val ownerId: Int,
+    val displayName: String,
+    val path: String,
+    val mimeType: String,
+    val sizeBytes: Long
+)
+
 @Dao
 interface UserDao {
     @Insert
@@ -44,9 +54,19 @@ interface UserDao {
     suspend fun count(): Int
 }
 
-@Database(entities = [User::class], version = 2, exportSchema = false)
+@Dao
+interface FileDao {
+    @Insert
+    suspend fun insert(file: StoredFile)
+
+    @Query("SELECT * FROM files WHERE ownerId = :ownerId ORDER BY id DESC")
+    suspend fun byOwner(ownerId: Int): List<StoredFile>
+}
+
+@Database(entities = [User::class, StoredFile::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
+    abstract fun fileDao(): FileDao
 
     companion object {
         @Volatile

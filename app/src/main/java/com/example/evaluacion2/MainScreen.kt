@@ -1,10 +1,21 @@
 package com.example.evaluacion2
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -19,7 +30,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.TableRestaurant
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,16 +43,23 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,34 +69,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import android.media.ExifInterface
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.runtime.produceState
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import android.Manifest
-import android.app.Activity
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.MediaStore
-import android.provider.Settings
-import android.widget.Toast
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
@@ -139,8 +134,10 @@ private fun PlaceholderScreen(title: String) {
         )
     }
 }
+
+
 private fun loadBitmap(path: String): ImageBitmap? {
-    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }   // reduce el tamaño en memoria
+    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
     val bmp = BitmapFactory.decodeFile(path, opts) ?: return null
 
     val degrees = when (
@@ -166,10 +163,11 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
     val rut by vm.userRut.collectAsStateWithLifecycle()
     val photoPath by vm.photoPath.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
-    val permission = Manifest.permission.READ_MEDIA_IMAGES
+
+    var pendingUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+
 
     val bitmap by produceState<ImageBitmap?>(null, photoPath) {
         value = photoPath?.let { path ->
@@ -178,44 +176,22 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
     }
 
 
-    val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        result.data?.data?.let { vm.setProfilePhoto(it) }
-    }
-
-    val openGallery = {
-        galleryLauncher.launch(
-            Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        )
-    }
-
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            openGallery()
-        } else {
-            val activity = context as? Activity
-            val blocked = activity != null &&
-                    !ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
-            if (blocked) {
-                showSettingsDialog = true   // el usuario marcó "no preguntar más"
-            } else {
-                Toast.makeText(
-                    context, "Necesitas dar permiso para elegir una foto", Toast.LENGTH_SHORT
-                ).show()
+    val preview by produceState<ImageBitmap?>(null, pendingUri) {
+        value = pendingUri?.let { uri ->
+            withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(
+                        stream, null, BitmapFactory.Options().apply { inSampleSize = 4 }
+                    )?.asImageBitmap()
+                }
             }
         }
     }
 
 
-    val onPhotoClick = {
-        val granted = ContextCompat.checkSelfPermission(context, permission) ==
-                PackageManager.PERMISSION_GRANTED
-        if (granted) openGallery() else permissionLauncher.launch(permission)
-    }
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> if (uri != null) pendingUri = uri }
 
     Column(
         Modifier.fillMaxSize().padding(16.dp),
@@ -230,7 +206,11 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
                         .size(150.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
-                        .clickable { onPhotoClick() },
+                        .clickable {
+                            picker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     val img = bitmap
@@ -265,7 +245,7 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
                 Text("Toca la foto para cambiarla", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(24.dp))
 
-
+                // INFORMACIÓN ABAJO
                 Card(Modifier.fillMaxWidth()) {
                     Column(
                         Modifier.fillMaxWidth().padding(20.dp),
@@ -294,25 +274,34 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
         }
     }
 
-    if (showSettingsDialog) {
+    pendingUri?.let { uri ->
         AlertDialog(
-            onDismissRequest = { showSettingsDialog = false },
-            title = { Text("Permiso necesario") },
+            onDismissRequest = { pendingUri = null },
+            title = { Text("¿Usar esta foto?") },
             text = {
-                Text("Para elegir una foto debes permitir el acceso a tus imágenes en los ajustes de la app.")
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val p = preview
+                    if (p != null) {
+                        Image(
+                            bitmap = p,
+                            contentDescription = "Vista previa",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(200.dp).clip(CircleShape)
+                        )
+                    } else {
+                        Text("Cargando vista previa...")
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    showSettingsDialog = false
-                    context.startActivity(
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                        }
-                    )
-                }) { Text("Abrir ajustes") }
+                    vm.setProfilePhoto(uri)
+                    pendingUri = null
+                    Toast.makeText(context, "Foto de perfil actualizada", Toast.LENGTH_SHORT).show()
+                }) { Text("Confirmar") }
             },
             dismissButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("Cancelar") }
+                TextButton(onClick = { pendingUri = null }) { Text("Cancelar") }
             }
         )
     }

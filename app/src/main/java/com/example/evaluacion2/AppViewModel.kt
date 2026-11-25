@@ -289,6 +289,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // Convierte la hora a minutos para comparar horarios.
     private fun horaToMinutes(hora: String): Int? {
         val parts = hora.split(":")
         if (parts.size != 2) return null

@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -149,4 +150,162 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _photoPath.value = dest.absolutePath
         }
     }
+    // --- GESTIÓN DE SALAS Y SOLICITUDES ---
+
+    val salas: kotlinx.coroutines.flow.StateFlow<List<Sala>> =
+        db.salaDao().observeAll().stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val solicitudes: kotlinx.coroutines.flow.StateFlow<List<SolicitudSala>> =
+        db.solicitudDao().observeAll().stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun crearSala(
+        nombre: String,
+        capacidad: Int,
+        ubicacion: String,
+        onResult: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val cleanNombre = nombre.trim()
+            if (cleanNombre.isEmpty()) {
+                onResult("Ingresa el nombre de la sala")
+                return@launch
+            }
+            if (capacidad <= 0) {
+                onResult("La capacidad debe ser mayor a 0")
+                return@launch
+            }
+            if (db.salaDao().findByNombre(cleanNombre) != null) {
+                onResult("Ya existe una sala con ese nombre")
+                return@launch
+            }
+            db.salaDao().insert(
+                Sala(
+                    nombre = cleanNombre,
+                    capacidad = capacidad,
+                    ubicacion = ubicacion.trim().ifEmpty { "Sin ubicación especificada" }
+                )
+            )
+            onResult(null)
+        }
+    }
+
+    fun eliminarSala(sala: Sala) {
+        viewModelScope.launch {
+            db.salaDao().delete(sala)
+        }
+    }
+
+    fun verificarDocentePorRut(
+        rutInput: String,
+        onResult: (docente: User?, error: String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val rutError = Validators.rut(rutInput)
+            if (rutError != null) {
+                onResult(null, rutError)
+                return@launch
+            }
+            val formattedRut = Validators.formatRut(rutInput)
+            val docente = db.userDao().findByRut(formattedRut)
+            if (docente == null) {
+                onResult(null, "El RUT $formattedRut no está registrado como docente")
+            } else {
+                onResult(docente, null)
+            }
+        }
+    }
+
+    fun crearSolicitud(
+        sala: Sala,
+        rutInput: String,
+        horaInicio: String,
+        horaFin: String,
+        onResult: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            // 1. Verificar RUT del docente
+            val rutError = Validators.rut(rutInput)
+            if (rutError != null) {
+                onResult(rutError)
+                return@launch
+            }
+            val formattedRut = Validators.formatRut(rutInput)
+            val docente = db.userDao().findByRut(formattedRut)
+            if (docente == null) {
+                onResult("RUT no verificado: el docente no está registrado en el sistema")
+                return@launch
+            }
+
+            // 2. Validar horas (inicio < fin)
+            val inicioMin = horaToMinutes(horaInicio)
+            val finMin = horaToMinutes(horaFin)
+            if (inicioMin == null || finMin == null) {
+                onResult("Selecciona hora de inicio y término")
+                return@launch
+            }
+            if (finMin <= inicioMin) {
+                onResult("La hora final debe ser posterior a la hora de inicio")
+                return@launch
+            }
+
+            // 3. Validar que no exista tope horario en la misma sala
+            val existentes = db.solicitudDao().findBySala(sala.id)
+            val hayTope = existentes.any { sol ->
+                val sIni = horaToMinutes(sol.horaInicio) ?: 0
+                val sFin = horaToMinutes(sol.horaFin) ?: 0
+                inicioMin < sFin && finMin > sIni
+            }
+            if (hayTope) {
+                onResult("La sala ya está reservada en ese bloque horario")
+                return@launch
+            }
+
+            // 4. Guardar solicitud
+            db.solicitudDao().insert(
+                SolicitudSala(
+                    salaId = sala.id,
+                    salaNombre = sala.nombre,
+                    docenteNombre = docente.name,
+                    docenteRut = docente.rut,
+                    horaInicio = horaInicio,
+                    horaFin = horaFin
+                )
+            )
+            onResult(null)
+        }
+    }
+
+    fun eliminarSolicitud(solicitud: SolicitudSala) {
+        viewModelScope.launch {
+            db.solicitudDao().delete(solicitud)
+        }
+    }
+
+    private fun horaToMinutes(hora: String): Int? {
+        val parts = hora.split(":")
+        if (parts.size != 2) return null
+        val h = parts[0].toIntOrNull() ?: return null
+        val m = parts[1].toIntOrNull() ?: return null
+        return h * 60 + m
+    }
+
+
+
+
+
+
+
+
+
+
+
+
 }

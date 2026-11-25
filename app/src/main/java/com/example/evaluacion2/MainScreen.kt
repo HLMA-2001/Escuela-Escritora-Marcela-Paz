@@ -117,24 +117,12 @@ fun MainScreen(vm: AppViewModel, onLogout: () -> Unit) {
             enterTransition = { fadeIn() },
             exitTransition = { fadeOut() }
         ) {
-            composable("solicitud") { PlaceholderScreen("Solicitud de salas") }
-            composable("salas") { PlaceholderScreen("Salas") }
+            composable("solicitud") { SolicitudesScreen(vm) }
+            composable("salas") { SalasScreen(vm) }
             composable("perfil") { ProfileScreen(vm, onLogout) }
         }
     }
 }
-
-@Composable
-private fun PlaceholderScreen(title: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            "$title\n(en construcción)",
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.titleMedium
-        )
-    }
-}
-
 
 private fun loadBitmap(path: String): ImageBitmap? {
     val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
@@ -165,16 +153,13 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
-
     var pendingUri by rememberSaveable { mutableStateOf<Uri?>(null) }
-
 
     val bitmap by produceState<ImageBitmap?>(null, photoPath) {
         value = photoPath?.let { path ->
             withContext(Dispatchers.IO) { loadBitmap(path) }
         }
     }
-
 
     val preview by produceState<ImageBitmap?>(null, pendingUri) {
         value = pendingUri?.let { uri ->
@@ -188,7 +173,6 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
         }
     }
 
-
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> if (uri != null) pendingUri = uri }
@@ -199,8 +183,6 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
     ) {
         AnimatedVisibility(visible, enter = fadeIn() + slideInVertically { it / 4 }) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-
-
                 Box(
                     Modifier
                         .size(150.dp)
@@ -245,7 +227,6 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
                 Text("Toca la foto para cambiarla", style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(24.dp))
 
-                // INFORMACIÓN ABAJO
                 Card(Modifier.fillMaxWidth()) {
                     Column(
                         Modifier.fillMaxWidth().padding(20.dp),

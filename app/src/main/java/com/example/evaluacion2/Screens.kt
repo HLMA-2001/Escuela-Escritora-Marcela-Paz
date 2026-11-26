@@ -59,10 +59,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 
 
 @Composable
-fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit) {
+// Pantalla de login. Los errores solo se muestran después de pulsar "Entrar" (variable submitted).
+fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit, onGuest: () -> Unit) {
     var email by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
@@ -76,9 +79,13 @@ fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit)
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(Icons.Default.Lock, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+        Image(
+            painter = painterResource(id = R.drawable.logo_marcela_paz),
+            contentDescription = "Logo de la Escuela Escritora Marcela Paz",
+            modifier = Modifier.size(112.dp)
+        )
         Spacer(Modifier.height(8.dp))
-        Text("Iniciar sesión", style = MaterialTheme.typography.headlineMedium)
+        Text("Inicio de sesión", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
 
         OutlinedTextField(
@@ -112,17 +119,27 @@ fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit)
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Entrar") }
-        TextButton(onClick = onRegister) { Text("¿No tienes cuenta? Regístrate") }
+
+        TextButton(onClick = onGuest) {
+            Text("Entrar como invitado")
+        }
+
+        TextButton(onClick = onRegister) {
+            Text("¿No tienes cuenta? Regístrate")
+        }
     }
 }
 
 
+// Documento elegido por el usuario (uri para leerlo, nombre y tamaño).
 data class PickedDoc(val uri: Uri, val name: String, val size: Long)
 
+// Reglas de los documentos del registro: solo pdf/doc/docx, máximo 5 archivos y 10 MB cada uno.
 private val allowedExtensions = listOf("pdf", "doc", "docx")
 private const val MAX_DOCS = 5
 private const val MAX_SIZE_BYTES = 10L * 1024 * 1024
 
+// Lee nombre y tamaño del archivo elegido consultando el ContentResolver.
 private fun readDoc(context: Context, uri: Uri): PickedDoc {
     var name = "documento"
     var size = 0L
@@ -138,6 +155,7 @@ private fun readDoc(context: Context, uri: Uri): PickedDoc {
 }
 
 @Composable
+// Pantalla de registro: nombre, RUT, correo, contraseña y documentos, todo validado con Validators.
 fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
     val context = LocalContext.current
 
@@ -177,8 +195,6 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
     val emailErr = if (submitted) Validators.email(email) else null
     val passErr = if (submitted) Validators.password(pass) else null
     val confErr = if (submitted) Validators.confirm(pass, confirm) else null
-    val docErr = if (submitted && docs.isEmpty())
-        "Sube al menos un documento que acredite que eres docente" else null
 
     Column(
         Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
@@ -229,11 +245,11 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
 
         Spacer(Modifier.height(8.dp))
         Text(
-            "Documentos que acrediten que eres docente",
+            "Documentos que acrediten que eres docente (opcional)",
             style = MaterialTheme.typography.titleSmall
         )
         Text(
-            "PDF o Word, hasta $MAX_DOCS archivos de 10 MB (título, credencial, contrato...)",
+            "PDF o Word, hasta $MAX_DOCS archivos de 10 MB (título, credencial, contrato...). Puedes registrarte sin subir ninguno.",
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(Modifier.height(8.dp))
@@ -279,14 +295,6 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
             }
         }
 
-        if (docErr != null) {
-            Text(
-                docErr, color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-
         AnimatedVisibility(error != null) {
             Text(
                 error ?: "", color = MaterialTheme.colorScheme.error,
@@ -301,7 +309,7 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
                 val ok = listOf(
                     Validators.name(name), Validators.rut(rut), Validators.email(email),
                     Validators.password(pass), Validators.confirm(pass, confirm)
-                ).all { it == null } && docs.isNotEmpty()
+                ).all { it == null }
                 if (ok) {
                     vm.register(name, rut, email, pass, docs.toList()) { err ->
                         if (err == null) onDone() else error = err
@@ -315,6 +323,7 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
 }
 
 @Composable
+// Bienvenida animada: espera 2,5 s y pasa sola a home (LaunchedEffect + delay).
 fun WelcomeScreen(vm: AppViewModel, onFinish: () -> Unit) {
     val name by vm.userName.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(false) }
@@ -345,6 +354,7 @@ fun WelcomeScreen(vm: AppViewModel, onFinish: () -> Unit) {
 }
 
 @Composable
+// Campo de contraseña reutilizable con botón para mostrar u ocultar el texto.
 fun PasswordField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -375,6 +385,7 @@ fun PasswordField(
     )
 }
 
+// Muestra el RUT formateado (con puntos y guion) mientras se escribe, sin cambiar el texto real.
 class RutTransformation : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val formatted = Validators.formatRut(text.text)

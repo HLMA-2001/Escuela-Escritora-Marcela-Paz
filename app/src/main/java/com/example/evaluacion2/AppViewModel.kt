@@ -44,7 +44,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _startRoute.value = "home"
             } else {
                 prefs.edit().remove("userId").remove("userName").apply()
-                _startRoute.value = if (db.userDao().count() == 0) "register" else "login"
+                _startRoute.value = "login"
             }
         }
     }

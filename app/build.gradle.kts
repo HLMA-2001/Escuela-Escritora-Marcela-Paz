@@ -11,6 +11,11 @@ android {
     }
 
     defaultConfig {
+        // Configura las direcciones de ambos servicios. Los valores por defecto apuntan al emulador.
+        val salasUrl = providers.gradleProperty("salasUrl").orElse("http://10.0.2.2:8081")
+        val reservasUrl = providers.gradleProperty("reservasUrl").orElse("http://10.0.2.2:8082")
+        buildConfigField("String", "SALAS_URL", "\"${salasUrl.get().trimEnd('/')}\"")
+        buildConfigField("String", "RESERVAS_URL", "\"${reservasUrl.get().trimEnd('/')}\"")
         applicationId = "com.example.evaluacion2"
         minSdk = 33
         targetSdk = 37
@@ -22,10 +27,8 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
-            }
+            // Evita el fallo de inicio que producía la optimización parcial de la versión anterior.
+            isMinifyEnabled = false
         }
     }
     compileOptions {
@@ -34,6 +37,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // Hace que las URL estén disponibles en el código Kotlin mediante BuildConfig.
+        buildConfig = true
     }
 }
 
@@ -68,3 +73,4 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+

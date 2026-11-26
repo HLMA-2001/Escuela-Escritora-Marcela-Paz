@@ -18,3 +18,7 @@ local.properties
 key.properties
 secrets.properties
 .idea/
+/backend/target/
+/datos/
+/backend/datos/
+/.kotlin/

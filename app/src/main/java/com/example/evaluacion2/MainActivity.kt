@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.evaluacion2.ui.theme.Evaluacion2Theme
 
+// Punto de entrada de Android. Crea la interfaz Compose con el ViewModel compartido.
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

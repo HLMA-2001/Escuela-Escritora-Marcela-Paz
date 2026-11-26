@@ -3,6 +3,7 @@ package com.example.evaluacion2
 import android.util.Patterns
 
 object Validators {
+    // Revisa que el nombre cumpla las reglas del formulario de registro.
     fun name(v: String): String? {
         val n = v.trim()
         return when {
@@ -23,6 +24,7 @@ object Validators {
     )
     private val REPEATED_REGEX = Regex("(.)\\1{2,}")
 
+    // Valida el formato y los dominios permitidos para el correo de la cuenta.
     fun email(v: String): String? = when {
         v.isBlank() -> "Ingresa tu correo"
         v.any { it.isWhitespace() } -> "No puede tener espacios"
@@ -36,11 +38,13 @@ object Validators {
     private val COMMON_PASSWORDS = listOf("password", "contraseña", "qwerty", "admin", "12345678")
     private val SEQUENCES = listOf("0123456789", "abcdefghijklmnopqrstuvwxyz", "qwertyuiop")
 
+    // Busca secuencias simples que debilitan la contraseña.
     private fun hasSequence(v: String): Boolean {
         val s = v.lowercase()
         return SEQUENCES.any { seq -> seq.windowed(4).any { it in s } }
     }
 
+    // Aplica los requisitos de longitud y composición de la contraseña.
     fun password(v: String): String? = when {
         v.length < 8 -> "Mínimo 8 caracteres"
         v.length > 32 -> "Máximo 32 caracteres"
@@ -54,11 +58,14 @@ object Validators {
         COMMON_PASSWORDS.any { it in v.lowercase() } -> "Contraseña demasiado común"
         else -> null
     }
+    // Comprueba que la confirmación coincida con la contraseña original.
     fun confirm(p: String, c: String): String? =
         if (p != c) "Las contraseñas no coinciden" else null
 
+    // Quita los separadores y normaliza la K para validar el RUT.
     fun cleanRut(v: String): String =
         v.filter { it.isDigit() || it == 'k' || it == 'K' }.uppercase()
+    // Aplica los separadores de presentación del RUT chileno.
     fun formatRut(v: String): String {
         val c = cleanRut(v)
         if (c.length < 2) return c
@@ -67,6 +74,7 @@ object Validators {
         return "$dots-${c.last()}"
     }
 
+    // Calcula el dígito verificador del RUT con módulo 11.
     fun rut(v: String): String? {
         val c = cleanRut(v)
         if (c.isEmpty()) return "Ingresa tu RUT"

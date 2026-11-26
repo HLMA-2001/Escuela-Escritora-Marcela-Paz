@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,13 +75,16 @@ import kotlinx.coroutines.withContext
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
+// Define las pestañas de reservas en red, gestión local y perfil.
 private val tabs = listOf(
-    Tab("solicitud", "Solicitud", Icons.Default.Edit),
-    Tab("salas", "Salas", Icons.Default.TableRestaurant),
+    Tab("red", "En red", Icons.Default.Edit),
+    Tab("solicitud", "Solicitud local", Icons.Default.Edit),
+    Tab("salas", "Salas locales", Icons.Default.TableRestaurant),
     Tab("perfil", "Perfil", Icons.Default.Person)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
+// Conecta la navegación inferior con las pantallas de la sesión.
 @Composable
 fun MainScreen(vm: AppViewModel, onLogout: () -> Unit) {
     val nav = rememberNavController()
@@ -112,11 +116,12 @@ fun MainScreen(vm: AppViewModel, onLogout: () -> Unit) {
     ) { padding ->
         NavHost(
             navController = nav,
-            startDestination = "solicitud",
+            startDestination = "red",
             modifier = Modifier.padding(padding),
             enterTransition = { fadeIn() },
             exitTransition = { fadeOut() }
         ) {
+            composable("red") { ReservasRedScreen(vm) }
             composable("solicitud") { SolicitudesScreen(vm) }
             composable("salas") { SalasScreen(vm) }
             composable("perfil") { ProfileScreen(vm, onLogout) }
@@ -124,6 +129,7 @@ fun MainScreen(vm: AppViewModel, onLogout: () -> Unit) {
     }
 }
 
+// Lee la foto interna con un tamaño acotado para mostrarla en el perfil.
 private fun loadBitmap(path: String): ImageBitmap? {
     val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
     val bmp = BitmapFactory.decodeFile(path, opts) ?: return null
@@ -144,12 +150,15 @@ private fun loadBitmap(path: String): ImageBitmap? {
     return result.asImageBitmap()
 }
 
+// Muestra los datos de la cuenta y permite elegir una imagen con el selector de Android.
 @Composable
 private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
     val context = LocalContext.current
     val name by vm.userName.collectAsStateWithLifecycle()
     val rut by vm.userRut.collectAsStateWithLifecycle()
     val photoPath by vm.photoPath.collectAsStateWithLifecycle()
+    val rol by vm.rolRed.collectAsStateWithLifecycle()
+    var verCredencial by remember { mutableStateOf(false) }
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
@@ -239,7 +248,12 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
                             textAlign = TextAlign.Center
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("docente", style = MaterialTheme.typography.bodyLarge)
+                        Text(when (rol) {
+                            RolRed.DOCENTE -> "Docente"
+                            RolRed.INSPECTOR -> "Inspector"
+                            RolRed.SIN_ROL -> "Sin rol asignado"
+                        }, style = MaterialTheme.typography.bodyLarge)
+                        TextButton(onClick = { verCredencial = true }) { Text("Ver credencial de rol") }
                         Spacer(Modifier.height(8.dp))
                         Text("RUT: $rut", style = MaterialTheme.typography.bodyMedium)
                     }
@@ -253,6 +267,21 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Cerrar sesión")
         }
+    }
+
+    // La credencial solo se comparte con quien administra los roles en el servidor.
+    if (verCredencial) vm.tokenReservas()?.let { token ->
+        AlertDialog(
+            onDismissRequest = { verCredencial = false },
+            title = { Text("Credencial de rol") },
+            text = {
+                Column {
+                    Text("Compártela solo con quien administra los permisos de la escuela.")
+                    SelectionContainer { Text(token) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { verCredencial = false }) { Text("Cerrar") } }
+        )
     }
 
     pendingUri?.let { uri ->
@@ -287,3 +316,4 @@ private fun ProfileScreen(vm: AppViewModel, onLogout: () -> Unit) {
         )
     }
 }
+

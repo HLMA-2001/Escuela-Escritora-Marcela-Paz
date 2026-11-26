@@ -59,9 +59,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
+// Muestra las salas de Room y permite abrir el formulario de creación local.
 @Composable
 fun SalasScreen(vm: AppViewModel) {
     val context = LocalContext.current
+    val rol by vm.rolRed.collectAsStateWithLifecycle()
     val salas by vm.salas.collectAsStateWithLifecycle()
     var showCreateDialog by remember { mutableStateOf(false) }
 
@@ -70,7 +72,7 @@ fun SalasScreen(vm: AppViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Button(
+        if (rol == RolRed.INSPECTOR) Button(
             onClick = { showCreateDialog = true },
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -84,7 +86,7 @@ fun SalasScreen(vm: AppViewModel) {
         if (salas.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "No hay salas registradas.\nPresiona \"Crear sala\" para agregar una.",
+                    "No hay salas registradas.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -129,7 +131,7 @@ fun SalasScreen(vm: AppViewModel) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = {
+                            if (rol == RolRed.INSPECTOR) IconButton(onClick = {
                                 vm.eliminarSala(sala)
                                 Toast.makeText(context, "Sala eliminada", Toast.LENGTH_SHORT).show()
                             }) {
@@ -146,7 +148,7 @@ fun SalasScreen(vm: AppViewModel) {
         }
     }
 
-    if (showCreateDialog) {
+    if (showCreateDialog && rol == RolRed.INSPECTOR) {
         CrearSalaDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { nombre, capacidad, ubicacion, onError ->
@@ -163,6 +165,7 @@ fun SalasScreen(vm: AppViewModel) {
     }
 }
 
+// Captura el nombre, la capacidad y la ubicación de una sala local.
 @Composable
 private fun CrearSalaDialog(
     onDismiss: () -> Unit,
@@ -233,9 +236,11 @@ private fun CrearSalaDialog(
     )
 }
 
+// Muestra y cancela solicitudes guardadas en este dispositivo.
 @Composable
 fun SolicitudesScreen(vm: AppViewModel) {
     val context = LocalContext.current
+    val rol by vm.rolRed.collectAsStateWithLifecycle()
     val solicitudes by vm.solicitudes.collectAsStateWithLifecycle()
     val salas by vm.salas.collectAsStateWithLifecycle()
     val currentUserRut by vm.userRut.collectAsStateWithLifecycle()
@@ -246,7 +251,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Button(
+        if (rol == RolRed.DOCENTE) Button(
             onClick = {
                 if (salas.isEmpty()) {
                     Toast.makeText(
@@ -270,7 +275,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
         if (solicitudes.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "No hay solicitudes de salas registradas.\nPresiona \"Solicitar sala\" para crear una reserva.",
+                    "No hay solicitudes de salas registradas.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -332,7 +337,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = {
+                            if (rol == RolRed.DOCENTE && sol.docenteRut == currentUserRut) IconButton(onClick = {
                                 vm.eliminarSolicitud(sol)
                                 Toast.makeText(context, "Solicitud cancelada", Toast.LENGTH_SHORT).show()
                             }) {
@@ -349,7 +354,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
         }
     }
 
-    if (showRequestDialog) {
+    if (rol == RolRed.DOCENTE && showRequestDialog) {
         SolicitarSalaDialog(
             vm = vm,
             salas = salas,
@@ -364,6 +369,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+// Selecciona sala y horas y verifica el RUT antes de registrar una solicitud local.
 @Composable
 private fun SolicitarSalaDialog(
     vm: AppViewModel,
@@ -457,6 +463,7 @@ private fun SolicitarSalaDialog(
                             formError = null
                         }
                     },
+                    readOnly = true,
                     label = { Text("RUT del docente solicitante") },
                     placeholder = { Text("12.345.678-5") },
                     singleLine = true,
@@ -568,6 +575,7 @@ private fun SolicitarSalaDialog(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+// Devuelve una hora elegida en el formato que usa la base local.
 @Composable
 private fun TimeSelectorDialog(
     initialTime: String,

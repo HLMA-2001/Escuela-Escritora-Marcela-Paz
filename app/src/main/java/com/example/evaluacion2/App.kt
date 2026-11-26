@@ -17,6 +17,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
+// Espera a Room y a la sesión guardada antes de elegir la pantalla inicial.
 @Composable
 fun App(vm: AppViewModel) {
     val start by vm.startRoute.collectAsStateWithLifecycle()
@@ -31,6 +32,7 @@ fun App(vm: AppViewModel) {
     }
 }
 
+// Define las rutas de ingreso, registro, bienvenida e inicio.
 @Composable
 private fun AppNavigation(vm: AppViewModel, startRoute: String) {
     val nav = rememberNavController()

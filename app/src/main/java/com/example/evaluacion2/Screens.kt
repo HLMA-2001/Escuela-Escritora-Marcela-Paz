@@ -65,6 +65,7 @@ import androidx.compose.ui.res.painterResource
 
 @Composable
 // Pantalla de login. Los errores solo se muestran después de pulsar "Entrar" (variable submitted).
+// Valida los campos e inicia sesión o permite navegar como invitado.
 fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit, onGuest: () -> Unit) {
     var email by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
@@ -132,6 +133,7 @@ fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit,
 
 
 // Documento elegido por el usuario (uri para leerlo, nombre y tamaño).
+// Representa el archivo que devolvió el selector de documentos del sistema.
 data class PickedDoc(val uri: Uri, val name: String, val size: Long)
 
 // Reglas de los documentos del registro: solo pdf/doc/docx, máximo 5 archivos y 10 MB cada uno.
@@ -140,6 +142,7 @@ private const val MAX_DOCS = 5
 private const val MAX_SIZE_BYTES = 10L * 1024 * 1024
 
 // Lee nombre y tamaño del archivo elegido consultando el ContentResolver.
+// Lee el nombre y tamaño del documento desde su URI de Android.
 private fun readDoc(context: Context, uri: Uri): PickedDoc {
     var name = "documento"
     var size = 0L
@@ -156,6 +159,7 @@ private fun readDoc(context: Context, uri: Uri): PickedDoc {
 
 @Composable
 // Pantalla de registro: nombre, RUT, correo, contraseña y documentos, todo validado con Validators.
+// Recoge datos, valida el formulario y envía los adjuntos opcionales al ViewModel.
 fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
     val context = LocalContext.current
 
@@ -324,6 +328,7 @@ fun RegisterScreen(vm: AppViewModel, onDone: () -> Unit) {
 
 @Composable
 // Bienvenida animada: espera 2,5 s y pasa sola a home (LaunchedEffect + delay).
+// Muestra la bienvenida antes de pasar a la pantalla principal.
 fun WelcomeScreen(vm: AppViewModel, onFinish: () -> Unit) {
     val name by vm.userName.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(false) }
@@ -355,6 +360,7 @@ fun WelcomeScreen(vm: AppViewModel, onFinish: () -> Unit) {
 
 @Composable
 // Campo de contraseña reutilizable con botón para mostrar u ocultar el texto.
+// Alterna entre ocultar y mostrar la contraseña en el formulario.
 fun PasswordField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -386,6 +392,7 @@ fun PasswordField(
 }
 
 // Muestra el RUT formateado (con puntos y guion) mientras se escribe, sin cambiar el texto real.
+// Presenta el RUT con separadores, conservando la posición del cursor.
 class RutTransformation : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val formatted = Validators.formatRut(text.text)

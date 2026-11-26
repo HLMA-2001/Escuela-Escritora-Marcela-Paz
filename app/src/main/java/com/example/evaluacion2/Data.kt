@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
         Index(value = ["rut"], unique = true)
     ]
 )
+// Representa una cuenta local con un correo y un RUT únicos.
 data class User(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
@@ -28,6 +29,7 @@ data class User(
     val passwordHash: String
 )
 
+// Guarda los metadatos y la ruta interna de un adjunto.
 @Entity(tableName = "files")
 data class StoredFile(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -42,6 +44,7 @@ data class StoredFile(
     tableName = "salas",
     indices = [Index(value = ["nombre"], unique = true)]
 )
+// Representa una sala guardada en este dispositivo.
 data class Sala(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val nombre: String,
@@ -49,6 +52,7 @@ data class Sala(
     val ubicacion: String
 )
 
+// Guarda el bloque local y una copia del nombre de la sala y del solicitante.
 @Entity(tableName = "solicitudes")
 data class SolicitudSala(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -60,6 +64,7 @@ data class SolicitudSala(
     val horaFin: String     // Formato "HH:mm"
 )
 
+// Agrupa las consultas de cuentas usadas por el registro y la sesión.
 @Dao
 interface UserDao {
     @Insert
@@ -78,6 +83,7 @@ interface UserDao {
     suspend fun count(): Int
 }
 
+// Relaciona los archivos adjuntos con la cuenta que los agregó.
 @Dao
 interface FileDao {
     @Insert
@@ -87,6 +93,7 @@ interface FileDao {
     suspend fun byOwner(ownerId: Int): List<StoredFile>
 }
 
+// Expone inserciones, eliminaciones y cambios del catálogo local.
 @Dao
 interface SalaDao {
     @Insert
@@ -102,6 +109,7 @@ interface SalaDao {
     suspend fun findByNombre(nombre: String): Sala?
 }
 
+// Consulta las solicitudes locales y los horarios de una sala.
 @Dao
 interface SolicitudDao {
     @Insert
@@ -122,6 +130,7 @@ interface SolicitudDao {
     version = 4,
     exportSchema = false
 )
+// Declara las entidades Room y comparte una instancia de la base local.
 abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun fileDao(): FileDao

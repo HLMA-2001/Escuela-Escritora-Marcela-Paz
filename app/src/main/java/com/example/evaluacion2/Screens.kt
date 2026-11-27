@@ -65,12 +65,23 @@ import androidx.compose.ui.res.painterResource
 
 @Composable
 // Pantalla de login. Los errores solo se muestran después de pulsar "Entrar" (variable submitted).
-// Valida los campos e inicia sesión o permite navegar como invitado.
-fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit, onGuest: () -> Unit) {
+// Valida los campos e inicia sesión.
+fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit) {
     var email by rememberSaveable { mutableStateOf("") }
     var pass by rememberSaveable { mutableStateOf("") }
     var submitted by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var ingresando by remember { mutableStateOf(false) }
+    fun enviar() {
+        submitted = true
+        error = null
+        if (Validators.email(email) != null || pass.isBlank()) return
+        ingresando = true
+        vm.login(email, pass) { mensaje ->
+            ingresando = false
+            if (mensaje == null) onSuccess() else error = mensaje
+        }
+    }
 
     val emailErr = if (submitted) Validators.email(email) else null
     val passErr = if (submitted && pass.isBlank()) "Ingresa tu contraseña" else null
@@ -112,20 +123,12 @@ fun LoginScreen(vm: AppViewModel, onSuccess: () -> Unit, onRegister: () -> Unit,
 
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = {
-                submitted = true
-                if (Validators.email(email) == null && pass.isNotBlank()) {
-                    vm.login(email, pass) { err -> if (err == null) onSuccess() else error = err }
-                }
-            },
+            onClick = { enviar() },
+            enabled = !ingresando,
             modifier = Modifier.fillMaxWidth()
         ) { Text("Entrar") }
 
-        TextButton(onClick = onGuest) {
-            Text("Entrar como invitado")
-        }
-
-        TextButton(onClick = onRegister) {
+        TextButton(onClick = onRegister, enabled = !ingresando) {
             Text("¿No tienes cuenta? Regístrate")
         }
     }

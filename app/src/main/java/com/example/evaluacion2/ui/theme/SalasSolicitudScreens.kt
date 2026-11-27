@@ -1,7 +1,11 @@
 package com.example.evaluacion2
 
+import android.app.DatePickerDialog
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -34,6 +39,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,8 +47,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +62,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.time.LocalDate
 
 // Muestra las salas de Room y permite abrir el formulario de creación local.
 @Composable
@@ -65,7 +70,18 @@ fun SalasScreen(vm: AppViewModel) {
     val context = LocalContext.current
     val rol by vm.rolRed.collectAsStateWithLifecycle()
     val salas by vm.salas.collectAsStateWithLifecycle()
+    val solicitudes by vm.solicitudes.collectAsStateWithLifecycle()
+    var filtro by rememberSaveable { mutableStateOf<EstadoSalaLocal?>(null) }
+    val ahora by observarHoraReservas()
+    val fechaActual = ahora.toLocalDate().toString()
+    val horaActual = ahora.toLocalTime().toString().take(5)
+    val solicitudesPorSala = remember(solicitudes) { solicitudes.groupBy { it.salaId } }
+    val salasVisibles = remember(salas, solicitudesPorSala, ahora, filtro) {
+        salas.map { sala -> sala to estadoSalaLocal(solicitudesPorSala[sala.id].orEmpty(), ahora, sala.restablecidaEn) }
+            .filter { (_, estado) -> filtro == null || filtro == estado }
+    }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var salaEditada by remember { mutableStateOf<Sala?>(null) }
 
     Column(
         modifier = Modifier
@@ -73,7 +89,7 @@ fun SalasScreen(vm: AppViewModel) {
             .padding(16.dp)
     ) {
         if (rol == RolRed.INSPECTOR) Button(
-            onClick = { showCreateDialog = true },
+            onClick = { salaEditada = null; showCreateDialog = true },
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.Add, contentDescription = null)
@@ -83,10 +99,23 @@ fun SalasScreen(vm: AppViewModel) {
 
         Spacer(Modifier.height(16.dp))
 
-        if (salas.isEmpty()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(selected = filtro == null, onClick = { filtro = null }, label = { Text("Todas") })
+            EstadoSalaLocal.entries.forEach { estado ->
+                FilterChip(selected = filtro == estado, onClick = { filtro = estado }, label = { Text(estado.filtro) })
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(ahora.etiquetaHoraEscuela(), style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(8.dp))
+
+        if (salasVisibles.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "No hay salas registradas.",
+                    if (salas.isEmpty()) "No hay salas registradas." else "No hay salas con este estado.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -97,7 +126,7 @@ fun SalasScreen(vm: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                items(salas, key = { it.id }) { sala ->
+                items(salasVisibles, key = { (sala, _) -> sala.id }) { (sala, estado) ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -122,7 +151,24 @@ fun SalasScreen(vm: AppViewModel) {
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    "Capacidad: ${sala.capacidad} personas",
+                                    estado.etiqueta,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = if (estado == EstadoSalaLocal.OCUPADA) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary
+                                )
+                                solicitudesPorSala[sala.id].orEmpty().asSequence()
+                                    .filter {
+                                        it.aprobada && (it.fecha > fechaActual ||
+                                            (it.fecha == fechaActual && it.horaInicio > horaActual))
+                                    }
+                                    .minWithOrNull(compareBy(SolicitudSala::fecha, SolicitudSala::horaInicio))
+                                    ?.let {
+                                        Text("Próxima reserva · ${it.fecha} · ${it.horaInicio} a ${it.horaFin}",
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
+                                Text(
+                                    if (sala.capacidad > 0) "Capacidad: ${sala.capacidad} personas"
+                                    else "Capacidad por confirmar",
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
@@ -130,6 +176,12 @@ fun SalasScreen(vm: AppViewModel) {
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                            if (rol == RolRed.INSPECTOR) IconButton(onClick = {
+                                salaEditada = sala
+                                showCreateDialog = true
+                            }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Editar sala")
                             }
                             if (rol == RolRed.INSPECTOR) IconButton(onClick = {
                                 vm.eliminarSala(sala)
@@ -149,12 +201,23 @@ fun SalasScreen(vm: AppViewModel) {
     }
 
     if (showCreateDialog && rol == RolRed.INSPECTOR) {
+        val editada = salas.firstOrNull { it.id == salaEditada?.id }
+        val terminada = editada != null && estadoSalaLocal(
+            solicitudesPorSala[editada.id].orEmpty(), ahora, editada.restablecidaEn
+        ) == EstadoSalaLocal.TERMINADA
         CrearSalaDialog(
+            sala = salaEditada,
             onDismiss = { showCreateDialog = false },
+            onRestablecer = if (editada != null && terminada) { responder ->
+                vm.restablecerSala(editada.id) { error ->
+                    if (error == null) Toast.makeText(context, "Sala disponible", Toast.LENGTH_SHORT).show()
+                    responder(error)
+                }
+            } else null,
             onConfirm = { nombre, capacidad, ubicacion, onError ->
-                vm.crearSala(nombre, capacidad, ubicacion) { err ->
+                vm.guardarSala(salaEditada, nombre, capacidad, ubicacion) { err ->
                     if (err == null) {
-                        Toast.makeText(context, "Sala creada correctamente", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Sala guardada", Toast.LENGTH_SHORT).show()
                         showCreateDialog = false
                     } else {
                         onError(err)
@@ -168,19 +231,24 @@ fun SalasScreen(vm: AppViewModel) {
 // Captura el nombre, la capacidad y la ubicación de una sala local.
 @Composable
 private fun CrearSalaDialog(
+    sala: Sala?,
     onDismiss: () -> Unit,
+    onRestablecer: (((String?) -> Unit) -> Unit)?,
     onConfirm: (nombre: String, capacidad: Int, ubicacion: String, onError: (String) -> Unit) -> Unit
 ) {
-    var nombre by rememberSaveable { mutableStateOf("") }
-    var capacidadText by rememberSaveable { mutableStateOf("") }
-    var ubicacion by rememberSaveable { mutableStateOf("") }
+    var nombre by rememberSaveable(sala?.id) { mutableStateOf(sala?.nombre.orEmpty()) }
+    var capacidadText by rememberSaveable(sala?.id) {
+        mutableStateOf(sala?.capacidad?.takeIf { it > 0 }?.toString().orEmpty())
+    }
+    var ubicacion by rememberSaveable(sala?.id) { mutableStateOf(sala?.ubicacion.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var restableciendo by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Nueva sala") },
+        title = { Text(if (sala == null) "Nueva sala" else "Editar sala") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = nombre,
                     onValueChange = { nombre = it; error = null },
@@ -211,6 +279,19 @@ private fun CrearSalaDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (onRestablecer != null) {
+                    OutlinedButton(
+                        enabled = !restableciendo,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            restableciendo = true
+                            onRestablecer { mensaje ->
+                                restableciendo = false
+                                error = mensaje
+                            }
+                        }
+                    ) { Text("Restablecer disponibilidad") }
+                }
                 error?.let {
                     Text(
                         text = it,
@@ -221,7 +302,7 @@ private fun CrearSalaDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
+            Button(enabled = !restableciendo, onClick = {
                 val cap = capacidadText.toIntOrNull() ?: 0
                 onConfirm(nombre, cap, ubicacion) { msg -> error = msg }
             }) {
@@ -245,6 +326,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
     val salas by vm.salas.collectAsStateWithLifecycle()
     val currentUserRut by vm.userRut.collectAsStateWithLifecycle()
     var showRequestDialog by remember { mutableStateOf(false) }
+    var solicitudEditada by remember { mutableStateOf<SolicitudSala?>(null) }
 
     Column(
         modifier = Modifier
@@ -270,6 +352,11 @@ fun SolicitudesScreen(vm: AppViewModel) {
             Text("Solicitar sala")
         }
 
+        if (rol == RolRed.INSPECTOR) {
+            val pendientes = solicitudes.count { !it.aprobada && !it.rechazada }
+            Text(if (pendientes == 0) "No hay solicitudes pendientes de aprobación en este dispositivo."
+                else "Solicitudes pendientes de aprobación: $pendientes")
+        }
         Spacer(Modifier.height(16.dp))
 
         if (solicitudes.isEmpty()) {
@@ -286,7 +373,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                items(solicitudes, key = { it.id }) { sol ->
+                items(solicitudes.sortedBy { rol == RolRed.INSPECTOR && (it.aprobada || it.rechazada) }, key = { it.id }) { sol ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -313,7 +400,7 @@ fun SolicitudesScreen(vm: AppViewModel) {
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        "Horario: ${sol.horaInicio} - ${sol.horaFin}",
+                                        "${sol.fecha} · ${sol.horaInicio} a ${sol.horaFin}",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -336,8 +423,16 @@ fun SolicitudesScreen(vm: AppViewModel) {
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Text(etiquetaSolicitud(sol.aprobada, sol.rechazada))
                             }
-                            if (rol == RolRed.DOCENTE && sol.docenteRut == currentUserRut) IconButton(onClick = {
+                            if (rol == RolRed.INSPECTOR && !sol.rechazada) IconButton(enabled = salas.isNotEmpty(), onClick = {
+                                solicitudEditada = sol
+                            }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Editar solicitud")
+                            }
+                            if (!sol.rechazada && (rol == RolRed.INSPECTOR ||
+                                (rol == RolRed.DOCENTE && sol.docenteRut == currentUserRut))
+                            ) IconButton(onClick = {
                                 vm.eliminarSolicitud(sol)
                                 Toast.makeText(context, "Solicitud cancelada", Toast.LENGTH_SHORT).show()
                             }) {
@@ -348,21 +443,36 @@ fun SolicitudesScreen(vm: AppViewModel) {
                                 )
                             }
                         }
+                        if (rol == RolRed.INSPECTOR && !sol.aprobada && !sol.rechazada) {
+                            BotonesDecisionReserva(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) { aprobar ->
+                                vm.resolverSolicitud(sol.id, aprobar) { error ->
+                                    val mensaje = if (aprobar) "Reserva aprobada" else "Reserva rechazada"
+                                    Toast.makeText(context, error ?: mensaje, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    if (rol == RolRed.DOCENTE && showRequestDialog) {
+    val editada = solicitudEditada
+    if (salas.isNotEmpty() && ((rol == RolRed.DOCENTE && showRequestDialog) ||
+        (rol == RolRed.INSPECTOR && editada != null))
+    ) {
         SolicitarSalaDialog(
             vm = vm,
             salas = salas,
-            defaultRut = Validators.cleanRut(currentUserRut),
-            onDismiss = { showRequestDialog = false },
+            solicitudes = solicitudes,
+            defaultRut = Validators.cleanRut(editada?.docenteRut ?: currentUserRut),
+            solicitud = editada,
+            onDismiss = { showRequestDialog = false; solicitudEditada = null },
             onSuccess = {
-                Toast.makeText(context, "Solicitud registrada con éxito", Toast.LENGTH_SHORT).show()
+                val mensaje = if (editada == null) "Solicitud enviada para aprobación" else "Solicitud guardada"
+                Toast.makeText(context, mensaje, Toast.LENGTH_SHORT).show()
                 showRequestDialog = false
+                solicitudEditada = null
             }
         )
     }
@@ -374,32 +484,63 @@ fun SolicitudesScreen(vm: AppViewModel) {
 private fun SolicitarSalaDialog(
     vm: AppViewModel,
     salas: List<Sala>,
+    solicitudes: List<SolicitudSala>,
     defaultRut: String,
+    solicitud: SolicitudSala?,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
-    var selectedSala by remember { mutableStateOf(salas.first()) }
+    val context = LocalContext.current
+    var salaElegidaId by rememberSaveable { mutableStateOf(solicitud?.salaId) }
+    val ahora by observarHoraReservas()
+    var fechaTexto by rememberSaveable { mutableStateOf(solicitud?.fecha ?: ahora.toLocalDate().toString()) }
     var dropdownExpanded by remember { mutableStateOf(false) }
 
-    var horaInicio by rememberSaveable { mutableStateOf("08:30") }
-    var horaFin by rememberSaveable { mutableStateOf("10:00") }
-    var pickingInicio by remember { mutableStateOf(false) }
-    var pickingFin by remember { mutableStateOf(false) }
+    var horaInicio by rememberSaveable { mutableStateOf(solicitud?.horaInicio ?: "08:30") }
+    var horaFin by rememberSaveable { mutableStateOf(solicitud?.horaFin ?: "10:00") }
 
     var rut by rememberSaveable { mutableStateOf(defaultRut) }
     var docenteVerificado by remember { mutableStateOf<User?>(null) }
     var rutMensajeError by remember { mutableStateOf<String?>(null) }
     var formError by remember { mutableStateOf<String?>(null) }
+    val errorHorario = errorHorarioReserva(horaInicio, horaFin)
+    val salasDisponibles = if (errorHorario == null) {
+        salas.filter { sala ->
+            solicitudes.none {
+                it.aprobada && it.fecha == fechaTexto && it.id != solicitud?.id && it.salaId == sala.id &&
+                    horaInicio < it.horaFin && horaFin > it.horaInicio
+            }
+        }
+    } else emptyList()
+    val selectedSala = if (salaElegidaId == null) salasDisponibles.firstOrNull()
+        else salasDisponibles.firstOrNull { it.id == salaElegidaId }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Solicitar sala") },
+        title = { Text(if (solicitud == null) "Solicitar sala" else "Editar solicitud") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(ahora.etiquetaHoraEscuela(), style = MaterialTheme.typography.labelMedium)
+                OutlinedButton(onClick = {
+                    val fecha = LocalDate.parse(fechaTexto)
+                    DatePickerDialog(context, { _, anio, mes, dia ->
+                        fechaTexto = LocalDate.of(anio, mes + 1, dia).toString()
+                        formError = null
+                    }, fecha.year, fecha.monthValue - 1, fecha.dayOfMonth).show()
+                }) { Text("Fecha · $fechaTexto") }
                 // 1. Selector de Sala
                 Box(Modifier.fillMaxWidth()) {
                     OutlinedTextField(
-                        value = "${selectedSala.nombre} (Cap: ${selectedSala.capacidad})",
+                        value = selectedSala?.let {
+                            if (it.capacidad > 0) "${it.nombre} (Cap: ${it.capacidad})" else it.nombre
+                        } ?: when {
+                            errorHorario != null -> "Revisa el horario"
+                            salasDisponibles.isEmpty() -> "Sin salas disponibles"
+                            else -> "Elige una sala disponible"
+                        },
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Sala") },
@@ -409,17 +550,17 @@ private fun SolicitarSalaDialog(
                     Box(
                         Modifier
                             .matchParentSize()
-                            .clickable { dropdownExpanded = true }
+                            .clickable(enabled = salasDisponibles.isNotEmpty()) { dropdownExpanded = true }
                     )
                     DropdownMenu(
                         expanded = dropdownExpanded,
                         onDismissRequest = { dropdownExpanded = false }
                     ) {
-                        salas.forEach { sala ->
+                        salasDisponibles.forEach { sala ->
                             DropdownMenuItem(
                                 text = { Text("${sala.nombre} (${sala.ubicacion})") },
                                 onClick = {
-                                    selectedSala = sala
+                                    salaElegidaId = sala.id
                                     dropdownExpanded = false
                                     formError = null
                                 }
@@ -428,31 +569,19 @@ private fun SolicitarSalaDialog(
                     }
                 }
 
-                // 2. Hora de inicio y Hora final
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { pickingInicio = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.AccessTime, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Inicio: $horaInicio")
-                    }
-                    OutlinedButton(
-                        onClick = { pickingFin = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.AccessTime, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Fin: $horaFin")
-                    }
+                CamposHoraReserva(
+                    horaInicio, horaFin,
+                    { horaInicio = it; formError = null },
+                    { horaFin = it; formError = null }
+                )
+                if (errorHorario != null) {
+                    Text(errorHorario, color = MaterialTheme.colorScheme.error)
+                } else if (salaElegidaId != null && selectedSala == null) {
+                    Text("La sala elegida no está disponible para ese bloque.", color = MaterialTheme.colorScheme.error)
                 }
 
                 // 3. RUT del docente y botón de verificación
-                OutlinedTextField(
+                if (solicitud == null) OutlinedTextField(
                     value = rut,
                     onValueChange = { v ->
                         val c = Validators.cleanRut(v)
@@ -473,7 +602,7 @@ private fun SolicitarSalaDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                FilledTonalButton(
+                if (solicitud == null) FilledTonalButton(
                     onClick = {
                         vm.verificarDocentePorRut(rut) { user, err ->
                             docenteVerificado = user
@@ -523,12 +652,14 @@ private fun SolicitarSalaDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
+            Button(enabled = selectedSala != null, onClick = {
                 vm.crearSolicitud(
-                    sala = selectedSala,
+                    sala = checkNotNull(selectedSala),
                     rutInput = rut,
+                    fecha = LocalDate.parse(fechaTexto),
                     horaInicio = horaInicio,
-                    horaFin = horaFin
+                    horaFin = horaFin,
+                    solicitud = solicitud
                 ) { err ->
                     if (err == null) {
                         onSuccess()
@@ -537,7 +668,7 @@ private fun SolicitarSalaDialog(
                     }
                 }
             }) {
-                Text("Confirmar solicitud")
+                Text(if (solicitud == null) "Enviar solicitud" else "Guardar cambios")
             }
         },
         dismissButton = {
@@ -547,71 +678,4 @@ private fun SolicitarSalaDialog(
         }
     )
 
-    if (pickingInicio) {
-        TimeSelectorDialog(
-            initialTime = horaInicio,
-            title = "Hora de inicio",
-            onDismiss = { pickingInicio = false },
-            onConfirm = { selected ->
-                horaInicio = selected
-                pickingInicio = false
-                formError = null
-            }
-        )
-    }
-
-    if (pickingFin) {
-        TimeSelectorDialog(
-            initialTime = horaFin,
-            title = "Hora final",
-            onDismiss = { pickingFin = false },
-            onConfirm = { selected ->
-                horaFin = selected
-                pickingFin = false
-                formError = null
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-// Devuelve una hora elegida en el formato que usa la base local.
-@Composable
-private fun TimeSelectorDialog(
-    initialTime: String,
-    title: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    val parts = initialTime.split(":")
-    val initH = parts.getOrNull(0)?.toIntOrNull() ?: 8
-    val initM = parts.getOrNull(1)?.toIntOrNull() ?: 0
-    val state = rememberTimePickerState(
-        initialHour = initH,
-        initialMinute = initM,
-        is24Hour = true
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                TimePicker(state = state)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val formatted = "%02d:%02d".format(state.hour, state.minute)
-                onConfirm(formatted)
-            }) {
-                Text("Aceptar")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar")
-            }
-        }
-    )
 }

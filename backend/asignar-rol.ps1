@@ -15,9 +15,14 @@ $dir = (New-Item -ItemType Directory -Force -Path $DirectorioDatos).FullName
 $destino = Join-Path $dir 'roles.json'
 $roles = @()
 if (Test-Path -LiteralPath $destino) {
-    $roles = @(Get-Content -LiteralPath $destino -Raw | ConvertFrom-Json | Where-Object huella -ne $huella)
+    $guardados = Get-Content -LiteralPath $destino -Raw | ConvertFrom-Json
+    $roles = @(foreach ($permiso in $guardados) {
+        if ($permiso.huella -ne $huella) {
+            @{ huella = [string]$permiso.huella; rol = [string]$permiso.rol }
+        }
+    })
 }
-if ($Rol -ne 'SIN_ROL') { $roles += @{huella=$huella; rol=$Rol} }
+$roles += @{huella=$huella; rol=$Rol}
 $temporal = Join-Path $dir ("roles-" + [Guid]::NewGuid() + '.tmp')
 $respaldo = "$temporal.bak"
 try {

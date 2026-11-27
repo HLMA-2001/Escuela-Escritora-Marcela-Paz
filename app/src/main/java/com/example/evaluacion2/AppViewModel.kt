@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDate
 import java.security.MessageDigest
 
 // Coordina la sesión y las operaciones de los flujos que se guardan en el dispositivo.
@@ -26,6 +28,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _rolRed = MutableStateFlow(RolRed.SIN_ROL)
     internal val rolRed = _rolRed.asStateFlow()
+    private val _catalogoLocal = MutableStateFlow(false)
+    internal val catalogoLocal = _catalogoLocal.asStateFlow()
+
+    internal fun seleccionarCatalogo(local: Boolean) {
+        _catalogoLocal.value = local
+    }
 
     // Solo el servicio de salas determina qué rol tiene la cuenta en red.
     internal fun actualizarRol(rol: RolRed) {
@@ -97,6 +105,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val userId = db.userDao().insert(
                 User(name = name.trim(), rut = cleanRut, email = mail, passwordHash = hash(pass))
             ).toInt()
+            prefs.edit().putBoolean("docente_pendiente_$userId", true).apply()
 
             withContext(Dispatchers.IO) {
                 val ctx = getApplication<Application>()
@@ -131,13 +140,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val u = db.userDao().findByEmail(email.trim().lowercase())
             if (u == null || u.passwordHash != hash(pass)) {
                 onResult("Correo o contraseña incorrectos")
-            } else {
-                prefs.edit().putInt("userId", u.id).putString("userName", u.name).apply()
-                _userName.value = u.name
-                _userRut.value = u.rut
-                _photoPath.value = loadPhotoPath()
-                onResult(null)
+                return@launch
             }
+
+            actualizarRol(RolRed.SIN_ROL)
+            prefs.edit().putInt("userId", u.id).putString("userName", u.name).apply()
+            _userName.value = u.name
+            _userRut.value = u.rut
+            _photoPath.value = loadPhotoPath()
+            onResult(null)
         }
     }
 
@@ -145,10 +156,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     internal fun tokenReservas(): String? {
         val id = prefs.getInt("userId", -1)
         if (id == -1) return null
+        return tokenReservas(id)
+    }
+
+    internal fun tokenReservas(id: Int): String {
         val clave = "reservas_token_$id"
         return prefs.getString(clave, null) ?: java.util.UUID.randomUUID().toString().also {
             prefs.edit().putString(clave, it).apply()
         }
+    }
+
+    internal suspend fun consultarRol(token: String): RolRed {
+        val id = prefs.getInt("userId", -1)
+        val pendiente = "docente_pendiente_$id"
+        if (id == -1 || token != tokenReservas(id) || !prefs.getBoolean(pendiente, false)) {
+            return RedApi.rol(token)
+        }
+        val rol = RedApi.registrarDocente(token)
+        prefs.edit().remove(pendiente).apply()
+        return rol
     }
 
     // Limpia la sesión activa y los datos de perfil que se muestran en pantalla.
@@ -195,8 +221,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             initialValue = emptyList()
         )
 
+    internal fun cuentas() = db.userDao().observeAll()
+
+    internal suspend fun editarCuenta(id: Int, nombre: String, correo: String): String? {
+        if (_rolRed.value != RolRed.INSPECTOR) return "Esta acción requiere el rol Inspector."
+        val nombreLimpio = nombre.trim()
+        val correoLimpio = correo.trim().lowercase()
+        if (nombreLimpio.isBlank()) return "Ingresa el nombre de la cuenta."
+        Validators.email(correoLimpio)?.let { return it }
+        return db.withTransaction {
+            val dao = db.userDao()
+            val cuenta = dao.findById(id) ?: return@withTransaction "La cuenta ya no existe."
+            val otra = dao.findByEmail(correoLimpio)
+            if (otra != null && otra.id != id) return@withTransaction "Ese correo ya está registrado."
+            dao.update(cuenta.copy(name = nombreLimpio, email = correoLimpio))
+            if (prefs.getInt("userId", -1) == id) {
+                prefs.edit().putString("userName", nombreLimpio).apply()
+                _userName.value = nombreLimpio
+            }
+            null
+        }
+    }
+
     // Valida el nombre y la capacidad antes de insertar una sala local.
-    fun crearSala(
+    fun guardarSala(
+        sala: Sala?,
         nombre: String,
         capacidad: Int,
         ubicacion: String,
@@ -204,7 +253,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         viewModelScope.launch {
             if (_rolRed.value != RolRed.INSPECTOR) {
-                onResult("Solo los inspectores pueden crear salas.")
+                onResult("Solo los inspectores pueden gestionar salas.")
                 return@launch
             }
             val cleanNombre = nombre.trim()
@@ -212,22 +261,47 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 onResult("Ingresa el nombre de la sala")
                 return@launch
             }
-            if (capacidad <= 0) {
+            if (capacidad <= 0 && !(capacidad == 0 && sala?.capacidad == 0)) {
                 onResult("La capacidad debe ser mayor a 0")
                 return@launch
             }
-            if (db.salaDao().findByNombre(cleanNombre) != null) {
-                onResult("Ya existe una sala con ese nombre")
+            val error = db.withTransaction {
+                val dao = db.salaDao()
+                val existente = dao.findByNombre(cleanNombre)
+                if (existente != null && existente.id != sala?.id) {
+                    return@withTransaction "Ya existe una sala con ese nombre"
+                }
+                val ubicacionLimpia = ubicacion.trim().ifEmpty { "Sin ubicación especificada" }
+                if (sala == null) {
+                    dao.insert(Sala(nombre = cleanNombre, capacidad = capacidad, ubicacion = ubicacionLimpia))
+                } else {
+                    val actual = dao.findById(sala.id) ?: return@withTransaction "La sala ya no existe."
+                    dao.update(actual.copy(nombre = cleanNombre, capacidad = capacidad, ubicacion = ubicacionLimpia))
+                }
+                null
+            }
+            onResult(error)
+        }
+    }
+
+    fun restablecerSala(id: Int, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            if (_rolRed.value != RolRed.INSPECTOR) {
+                onResult("Solo los inspectores pueden restablecer una sala.")
                 return@launch
             }
-            db.salaDao().insert(
-                Sala(
-                    nombre = cleanNombre,
-                    capacidad = capacidad,
-                    ubicacion = ubicacion.trim().ifEmpty { "Sin ubicación especificada" }
-                )
-            )
-            onResult(null)
+            val error = db.withTransaction {
+                val dao = db.salaDao()
+                val sala = dao.findById(id) ?: return@withTransaction "La sala ya no existe."
+                val ahora = horaEscuela()
+                val aprobadas = db.solicitudDao().aprobadasPorSala(id)
+                if (estadoSalaLocal(aprobadas, ahora, sala.restablecidaEn) != EstadoSalaLocal.TERMINADA) {
+                    return@withTransaction "Solo se puede restablecer una sala terminada."
+                }
+                dao.update(sala.copy(restablecidaEn = ahora.toString()))
+                null
+            }
+            onResult(error)
         }
     }
 
@@ -263,85 +337,105 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun crearSolicitud(
         sala: Sala,
         rutInput: String,
+        fecha: LocalDate,
         horaInicio: String,
         horaFin: String,
+        solicitud: SolicitudSala? = null,
         onResult: (String?) -> Unit
     ) {
         viewModelScope.launch {
-            if (_rolRed.value != RolRed.DOCENTE || Validators.formatRut(rutInput) != _userRut.value) {
-                onResult("Solo el docente que inició sesión puede solicitar con su propio RUT.")
+            val puedeGuardar = if (solicitud == null) {
+                _rolRed.value == RolRed.DOCENTE && Validators.formatRut(rutInput) == _userRut.value
+            } else {
+                _rolRed.value == RolRed.INSPECTOR
+            }
+            if (!puedeGuardar) {
+                onResult("Tu cuenta no tiene permiso para guardar esta solicitud.")
                 return@launch
             }
             // 1. Verificar RUT del docente
-            val rutError = Validators.rut(rutInput)
-            if (rutError != null) {
-                onResult(rutError)
-                return@launch
+            val docente = if (solicitud == null) {
+                Validators.rut(rutInput)?.let {
+                    onResult(it)
+                    return@launch
+                }
+                db.userDao().findByRut(Validators.formatRut(rutInput)) ?: run {
+                    onResult("RUT no verificado: el docente no está registrado en el sistema")
+                    return@launch
+                }
+            } else {
+                null
             }
-            val formattedRut = Validators.formatRut(rutInput)
-            val docente = db.userDao().findByRut(formattedRut)
-            if (docente == null) {
-                onResult("RUT no verificado: el docente no está registrado en el sistema")
+
+            errorHorarioReserva(horaInicio, horaFin)?.let {
+                onResult(it)
                 return@launch
             }
 
-            // 2. Validar horas (inicio < fin)
-            val inicioMin = horaToMinutes(horaInicio)
-            val finMin = horaToMinutes(horaFin)
-            if (inicioMin == null || finMin == null) {
-                onResult("Selecciona hora de inicio y término")
-                return@launch
-            }
-            if (finMin <= inicioMin) {
-                onResult("La hora final debe ser posterior a la hora de inicio")
-                return@launch
-            }
+            val error = db.withTransaction {
+                val dao = db.solicitudDao()
+                val salaActual = db.salaDao().findById(sala.id)
+                    ?: return@withTransaction "La sala ya no existe."
+                val anterior = solicitud?.let { dao.findById(it.id) }
+                if (solicitud != null && anterior == null) return@withTransaction "La solicitud ya no existe."
+                if (anterior?.rechazada == true) return@withTransaction "La solicitud ya fue rechazada."
+                if (dao.hayCruceAprobado(sala.id, fecha.toString(), horaInicio, horaFin, anterior?.id ?: 0)) {
+                    return@withTransaction "La sala ya está reservada en ese bloque horario."
+                }
 
-            // 3. Validar que no exista tope horario en la misma sala
-            val existentes = db.solicitudDao().findBySala(sala.id)
-            val hayTope = existentes.any { sol ->
-                val sIni = horaToMinutes(sol.horaInicio) ?: 0
-                val sFin = horaToMinutes(sol.horaFin) ?: 0
-                inicioMin < sFin && finMin > sIni
-            }
-            if (hayTope) {
-                onResult("La sala ya está reservada en ese bloque horario")
-                return@launch
-            }
-
-            // 4. Guardar solicitud
-            db.solicitudDao().insert(
-                SolicitudSala(
-                    salaId = sala.id,
-                    salaNombre = sala.nombre,
-                    docenteNombre = docente.name,
-                    docenteRut = docente.rut,
+                val nueva = SolicitudSala(
+                    id = anterior?.id ?: 0,
+                    salaId = salaActual.id,
+                    salaNombre = salaActual.nombre,
+                    docenteNombre = anterior?.docenteNombre ?: checkNotNull(docente).name,
+                    docenteRut = anterior?.docenteRut ?: checkNotNull(docente).rut,
                     horaInicio = horaInicio,
-                    horaFin = horaFin
+                    horaFin = horaFin,
+                    fecha = fecha.toString(),
+                    aprobada = anterior?.aprobada ?: false
                 )
-            )
-            onResult(null)
+                if (solicitud == null) dao.insert(nueva)
+                else if (dao.update(nueva) == 0) return@withTransaction "La solicitud ya no existe."
+                null
+            }
+            onResult(error)
+        }
+    }
+
+    fun resolverSolicitud(id: Int, aprobar: Boolean, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            if (_rolRed.value != RolRed.INSPECTOR) {
+                onResult("Solo un Inspector puede resolver solicitudes.")
+                return@launch
+            }
+            val error = db.withTransaction {
+                val dao = db.solicitudDao()
+                val solicitud = dao.findById(id) ?: return@withTransaction "La solicitud ya no existe."
+                if (solicitud.aprobada || solicitud.rechazada) return@withTransaction "La solicitud ya fue resuelta."
+                if (aprobar) {
+                    if (db.salaDao().findById(solicitud.salaId) == null) return@withTransaction "La sala ya no existe."
+                    if (dao.hayCruceAprobado(solicitud.salaId, solicitud.fecha, solicitud.horaInicio, solicitud.horaFin, id)) {
+                        return@withTransaction "Ya hay una reserva aprobada para esta sala en ese horario."
+                    }
+                }
+                dao.update(solicitud.copy(aprobada = aprobar, rechazada = !aprobar))
+                null
+            }
+            onResult(error)
         }
     }
 
     // Elimina la solicitud de la base de datos local.
     fun eliminarSolicitud(solicitud: SolicitudSala) {
         viewModelScope.launch {
-            if (_rolRed.value == RolRed.DOCENTE && solicitud.docenteRut == _userRut.value) {
+            if (_rolRed.value == RolRed.INSPECTOR ||
+                (_rolRed.value == RolRed.DOCENTE && solicitud.docenteRut == _userRut.value)
+            ) {
                 db.solicitudDao().delete(solicitud)
             }
         }
     }
 
-    // Convierte una hora válida a minutos desde medianoche para comparar intervalos.
-    private fun horaToMinutes(hora: String): Int? {
-        val parts = hora.split(":")
-        if (parts.size != 2) return null
-        val h = parts[0].toIntOrNull() ?: return null
-        val m = parts[1].toIntOrNull() ?: return null
-        if (h !in 0..23 || m !in 0..59) return null
-        return h * 60 + m
-    }
 
 
 

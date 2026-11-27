@@ -18,6 +18,7 @@ import tools.jackson.databind.ObjectMapper;
 class SalasController {
     record Sala(UUID id, String nombre, int capacidad, String ubicacion) {}
     record NuevaSala(String nombre, int capacidad, String ubicacion) {}
+    record CambioRol(UUID credencial, Roles.Rol rol) {}
 
     private final ArchivoJson<Sala> archivo;
     private final Roles roles;
@@ -44,6 +45,18 @@ class SalasController {
     @GetMapping("/rol")
     Roles.Rol rol(@RequestHeader(value = "X-Reserva-Token", required = false) UUID token) {
         return roles.consultar(token);
+    }
+
+    @PutMapping("/rol")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void asignarRol(@RequestBody CambioRol cambio,
+                    @RequestHeader(value = "X-Reserva-Token", required = false) UUID token) {
+        roles.asignar(token, cambio.credencial(), cambio.rol());
+    }
+
+    @PostMapping("/rol/docente")
+    Roles.Rol registrarDocente(@RequestHeader("X-Reserva-Token") UUID token) {
+        return roles.registrarDocente(token);
     }
 
     @PostMapping

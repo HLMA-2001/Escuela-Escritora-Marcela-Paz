@@ -1,7 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp") version "2.3.9"
+}
+
+val localSettings = Properties().apply {
+    providers.fileContents(rootProject.layout.projectDirectory.file("local.properties"))
+        .asText.orNull?.reader()?.use { load(it) }
 }
 
 android {
@@ -12,8 +19,10 @@ android {
 
     defaultConfig {
         // Configura las direcciones de ambos servicios. Los valores por defecto apuntan al emulador.
-        val salasUrl = providers.gradleProperty("salasUrl").orElse("http://10.0.2.2:8081")
-        val reservasUrl = providers.gradleProperty("reservasUrl").orElse("http://10.0.2.2:8082")
+        val salasUrl = providers.gradleProperty("salasUrl")
+            .orElse(localSettings.getProperty("salasUrl", "http://10.0.2.2:8081"))
+        val reservasUrl = providers.gradleProperty("reservasUrl")
+            .orElse(localSettings.getProperty("reservasUrl", "http://10.0.2.2:8082"))
         buildConfigField("String", "SALAS_URL", "\"${salasUrl.get().trimEnd('/')}\"")
         buildConfigField("String", "RESERVAS_URL", "\"${reservasUrl.get().trimEnd('/')}\"")
         applicationId = "com.example.evaluacion2"

@@ -51,12 +51,7 @@ private fun AppNavigation(vm: AppViewModel, startRoute: String) {
                     Toast.makeText(context, "Sesión iniciada correctamente", Toast.LENGTH_SHORT).show()
                     nav.navigate("welcome") { popUpTo(0) }
                 },
-                onRegister = { nav.navigate("register") },
-                onGuest = {
-                    nav.navigate("home") {
-                        popUpTo("login") { inclusive = true }
-                    }
-                }
+                onRegister = { nav.navigate("register") }
             )
         }
         composable("register") {

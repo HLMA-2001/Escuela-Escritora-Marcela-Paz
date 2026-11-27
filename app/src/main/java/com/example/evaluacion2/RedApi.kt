@@ -3,7 +3,6 @@ package com.example.evaluacion2
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
-import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -12,7 +11,7 @@ import org.json.JSONObject
 // Representa una sala obtenida del catálogo Spring Boot.
 internal data class SalaRemota(val id: String, val nombre: String, val capacidad: Int, val ubicacion: String)
 // Representa un bloque remoto y si pertenece a la cuenta actual.
-internal data class ReservaRemota(val id: String, val sala: String, val fecha: String, val inicio: String, val fin: String, val propia: Boolean)
+internal data class ReservaRemota(val id: String, val salaId: String, val sala: String, val fecha: String, val inicio: String, val fin: String, val propia: Boolean, val aprobada: Boolean, val rechazada: Boolean)
 
 // Centraliza las URL y convierte las respuestas JSON en datos para Compose.
 internal enum class RolRed { DOCENTE, INSPECTOR, SIN_ROL }
@@ -22,6 +21,16 @@ internal object RedApi {
     suspend fun rol(token: String): RolRed = RolRed.valueOf(
         request(BuildConfig.SALAS_URL + "/api/salas/rol", token = token).trim().removeSurrounding("\"")
     )
+
+    suspend fun registrarDocente(token: String): RolRed = RolRed.valueOf(
+        request(BuildConfig.SALAS_URL + "/api/salas/rol/docente", method = "POST", token = token)
+            .trim().removeSurrounding("\"")
+    )
+
+    suspend fun asignarRol(credencial: String, rol: RolRed, token: String) {
+        request(BuildConfig.SALAS_URL + "/api/salas/rol", "PUT",
+            JSONObject().put("credencial", credencial).put("rol", rol.name), token)
+    }
 
     // Distingue las direcciones de demostración local de un servidor HTTPS público.
     val usaRedLocal = listOf(BuildConfig.SALAS_URL, BuildConfig.RESERVAS_URL).any { url ->
@@ -38,8 +47,9 @@ internal object RedApi {
 
     // Envía el token opcional para distinguir las reservas de la cuenta actual.
     suspend fun reservas(token: String?): List<ReservaRemota> = array(BuildConfig.RESERVAS_URL + "/api/reservas", token).map {
-        ReservaRemota(it.getString("id"), it.getString("sala"), it.getString("fecha"),
-            it.getString("inicio"), it.getString("fin"), it.getBoolean("propia"))
+        ReservaRemota(it.getString("id"), it.getString("salaId"), it.getString("sala"), it.getString("fecha"),
+            it.getString("inicio"), it.getString("fin"), it.getBoolean("propia"),
+            it.optBoolean("aprobada", true), it.optBoolean("rechazada"))
     }
 
     // Envía el alta o la edición con la credencial del inspector.
@@ -49,21 +59,21 @@ internal object RedApi {
             JSONObject().put("nombre", nombre).put("capacidad", capacidad).put("ubicacion", ubicacion), token)
     }
     // Envía el identificador de sala, la fecha y el bloque al servicio de reservas.
-    suspend fun reservar(salaId: String, fecha: String, inicio: String, fin: String, token: String) {
-        request(BuildConfig.RESERVAS_URL + "/api/reservas", "POST",
+    suspend fun reservar(salaId: String, fecha: String, inicio: String, fin: String, token: String, id: String? = null) {
+        val ruta = if (id == null) "/api/reservas" else "/api/reservas/$id"
+        request(BuildConfig.RESERVAS_URL + ruta, if (id == null) "POST" else "PUT",
             JSONObject().put("salaId", salaId).put("fecha", fecha).put("inicio", inicio).put("fin", fin), token)
+    }
+
+    suspend fun resolverReserva(id: String, aprobar: Boolean, token: String) {
+        val accion = if (aprobar) "aprobar" else "rechazar"
+        request(BuildConfig.RESERVAS_URL + "/api/reservas/$id/$accion", "PUT", token = token)
     }
 
     // Solicita la cancelación con la credencial de quien creó la reserva.
     suspend fun cancelar(id: String, token: String) {
         request(BuildConfig.RESERVAS_URL + "/api/reservas/$id", "DELETE", token = token)
     }
-
-    // Consulta los feriados de Chile del año elegido y filtra por fecha y alcance nacional.
-    suspend fun feriado(fecha: LocalDate): String? =
-        array("https://nagerholidays.com/api/v4/Holidays/CL/${fecha.year}")
-            .firstOrNull { it.optString("date") == fecha.toString() && it.optBoolean("nationalHoliday") }
-            ?.getString("name")
 
     // Convierte la respuesta del servidor en una lista de objetos JSON.
     private suspend fun array(url: String, token: String? = null): List<JSONObject> {

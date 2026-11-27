@@ -18,6 +18,7 @@ local.properties
 key.properties
 secrets.properties
 .idea/
+/backend/build/
 /backend/target/
 /datos/
 /backend/datos/

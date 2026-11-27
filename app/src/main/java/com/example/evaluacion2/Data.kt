@@ -2,6 +2,7 @@ package com.example.evaluacion2
 
 import android.content.Context
 import androidx.room.Dao
+import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Delete
 import androidx.room.Entity
@@ -11,6 +12,9 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -49,7 +53,8 @@ data class Sala(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val nombre: String,
     val capacidad: Int,
-    val ubicacion: String
+    val ubicacion: String,
+    val restablecidaEn: String? = null
 )
 
 // Guarda el bloque local y una copia del nombre de la sala y del solicitante.
@@ -61,12 +66,20 @@ data class SolicitudSala(
     val docenteNombre: String,
     val docenteRut: String,
     val horaInicio: String, // Formato "HH:mm"
-    val horaFin: String     // Formato "HH:mm"
+    val horaFin: String,    // Formato "HH:mm"
+    @ColumnInfo(defaultValue = "''") val fecha: String = horaEscuela().toLocalDate().toString(),
+    @ColumnInfo(defaultValue = "0") val aprobada: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val rechazada: Boolean = false
 )
 
 // Agrupa las consultas de cuentas usadas por el registro y la sesión.
 @Dao
 interface UserDao {
+    @Update
+    suspend fun update(user: User): Int
+
+    @Query("SELECT * FROM users ORDER BY name COLLATE NOCASE")
+    fun observeAll(): Flow<List<User>>
     @Insert
     suspend fun insert(user: User): Long
 
@@ -96,6 +109,12 @@ interface FileDao {
 // Expone inserciones, eliminaciones y cambios del catálogo local.
 @Dao
 interface SalaDao {
+    @Query("SELECT * FROM salas WHERE id = :id")
+    suspend fun findById(id: Int): Sala?
+
+    @Update
+    suspend fun update(sala: Sala): Int
+
     @Insert
     suspend fun insert(sala: Sala): Long
 
@@ -112,6 +131,22 @@ interface SalaDao {
 // Consulta las solicitudes locales y los horarios de una sala.
 @Dao
 interface SolicitudDao {
+    @Query("SELECT * FROM solicitudes WHERE id = :id")
+    suspend fun findById(id: Int): SolicitudSala?
+
+    @Query("SELECT * FROM solicitudes WHERE salaId = :salaId AND aprobada = 1")
+    suspend fun aprobadasPorSala(salaId: Int): List<SolicitudSala>
+
+    @Query("""
+        SELECT EXISTS(SELECT 1 FROM solicitudes
+        WHERE salaId = :salaId AND fecha = :fecha AND aprobada = 1 AND id != :excluirId
+            AND horaInicio < :fin AND horaFin > :inicio)
+    """)
+    suspend fun hayCruceAprobado(salaId: Int, fecha: String, inicio: String, fin: String, excluirId: Int): Boolean
+
+    @Update
+    suspend fun update(solicitud: SolicitudSala): Int
+
     @Insert
     suspend fun insert(solicitud: SolicitudSala): Long
 
@@ -121,13 +156,11 @@ interface SolicitudDao {
     @Query("SELECT * FROM solicitudes ORDER BY id DESC")
     fun observeAll(): Flow<List<SolicitudSala>>
 
-    @Query("SELECT * FROM solicitudes WHERE salaId = :salaId")
-    suspend fun findBySala(salaId: Int): List<SolicitudSala>
 }
 
 @Database(
     entities = [User::class, StoredFile::class, Sala::class, SolicitudSala::class],
-    version = 4,
+    version = 8,
     exportSchema = false
 )
 // Declara las entidades Room y comparte una instancia de la base local.
@@ -141,12 +174,73 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var instance: AppDatabase? = null
 
+        private val migracionSalasPredefinidas = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                insertarSalasPredefinidas(db)
+            }
+        }
+
+        private val migracionAprobaciones = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE solicitudes ADD COLUMN fecha TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE solicitudes ADD COLUMN aprobada INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE solicitudes SET fecha = ?, aprobada = 1",
+                    arrayOf(horaEscuela().toLocalDate().toString()))
+                for (numero in 13..28) {
+                    db.execSQL(
+                        """
+                        DELETE FROM salas WHERE nombre = ? AND capacidad = 0 AND ubicacion = ?
+                        AND NOT EXISTS (SELECT 1 FROM solicitudes WHERE salaId = salas.id)
+                        """.trimIndent(),
+                        arrayOf("Sala de clases $numero", "Escuela Marcela Paz, San Bernardo")
+                    )
+                }
+            }
+        }
+
+        private val migracionRechazos = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE solicitudes ADD COLUMN rechazada INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val migracionRestablecimiento = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE salas ADD COLUMN restablecidaEn TEXT")
+            }
+        }
+
+        private val crearSalasPredefinidas = object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                insertarSalasPredefinidas(db)
+            }
+        }
+
+        private fun insertarSalasPredefinidas(db: SupportSQLiteDatabase) {
+            // PEI de la Escuela Escritora Marcela Paz, San Bernardo (RBD 10571).
+            // La numeración es de la app. El PEI no indica los cupos individuales.
+            val nombres = (1..12).map { "Sala de clases ${it.toString().padStart(2, '0')}" } +
+                listOf("Sala de computación 1", "Sala de computación 2", "Laboratorio de Ciencias", "Biblioteca CRA")
+            for (nombre in nombres) {
+                db.execSQL(
+                    """
+                    INSERT INTO salas (nombre, capacidad, ubicacion)
+                    SELECT ?, 0, ?
+                    WHERE NOT EXISTS (SELECT 1 FROM salas WHERE LOWER(nombre) = LOWER(?))
+                    """.trimIndent(),
+                    arrayOf(nombre, "Escuela Marcela Paz, San Bernardo", nombre)
+                )
+            }
+        }
+
         fun get(ctx: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 ctx.applicationContext,
                 AppDatabase::class.java,
                 "app.db"
             )
+                .addMigrations(migracionSalasPredefinidas, migracionAprobaciones, migracionRechazos, migracionRestablecimiento)
+                .addCallback(crearSalasPredefinidas)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

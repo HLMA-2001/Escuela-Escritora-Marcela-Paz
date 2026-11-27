@@ -1,39 +1,36 @@
 # Escuela Escritora Marcela Paz — Experiencia de Aprendizaje 3
 
-Aplicación Android para gestionar la disponibilidad de salas de una escuela. El flujo «En red» permite consultar salas y reservas, registrar una sala, elegir fecha y horario, consultar si la fecha es feriado nacional y cancelar reservas propias. La cuenta local identifica qué acciones muestra la interfaz. El backend recibe un identificador aleatorio para comprobar la propiedad al cancelar una reserva. Los datos personales del perfil y los documentos permanecen en el dispositivo.
+Aplicación Android para gestionar la disponibilidad de salas de una escuela. En «Reservas» se consultan las salas disponibles para un horario y se solicitan o cancelan reservas. El backend recibe una credencial aleatoria para verificar el rol y la propiedad de la reserva. Los datos personales del perfil y los documentos permanecen en el dispositivo.
 
-Las pestañas «Solicitud local» y «Salas locales» conservan los datos y flujos Room de la versión anterior. Las reservas locales y las reservas en red son independientes.
+La pestaña «Reservas» reúne los modos «En red» y «En este dispositivo». Cada modo verifica la disponibilidad en su propio catálogo y conserva las reservas existentes.
+
+El catálogo local predefinido incluye 12 aulas numeradas para la app, dos salas de computación, un laboratorio de ciencias y una biblioteca. Se tomó como referencia el establecimiento de San Bernardo (RBD 10571). La capacidad de cada sala figura como pendiente de confirmación. [Proyecto Educativo Institucional, pág. 7](https://wwwfs.mineduc.cl/Archivos/infoescuelas/documentos/10571/ProyectoEducativo10571.pdf)
 
 ## Arquitectura
 
 | Componente | Responsabilidad | Persistencia |
 |---|---|---|
-| Android, Kotlin y Jetpack Compose | Interfaz, cuenta local, validación, consumo HTTP y consulta de feriados | Room, archivos internos y preferencias |
+| Android, Kotlin y Jetpack Compose | Interfaz, cuenta local, validación y consumo HTTP | Room, archivos internos y preferencias |
 | Servicio de salas, Spring Boot | Catálogo de salas con nombre único y capacidad positiva | `datos/salas.json` |
 | Servicio de reservas, Spring Boot | Verificación de sala por HTTP, control de cruces y cancelación por propietario | `datos/reservas.json` |
-| Nager.Date | Consulta HTTPS de feriados nacionales en Chile por año | Fuente externa |
 
 Cada microservicio corre en su propio proceso, con un perfil de Spring y un puerto diferente. El servicio de reservas consulta al de salas antes de guardar cada solicitud. Para la demostración académica, cada servicio usa un archivo JSON persistente con escritura atómica y una instancia por servicio. Se inicia en la interfaz de loopback. La autenticación de cuentas es local y el token de cancelación es una credencial de demostración. Esta configuración está diseñada para un emulador o entorno de pruebas controlado.
 
 ## Inicio rápido en Windows
 
-Requisitos. JDK 21 o posterior para el backend, Android Studio con SDK 37 y un emulador Android con API 33 o posterior. La primera ejecución de Gradle o Maven puede necesitar internet. La consulta de feriados necesita conectividad HTTPS desde el emulador.
+Abre la carpeta raíz en Android Studio y sincroniza Gradle para cargar los módulos `:app` y `:backend`. El proyecto usa JDK 25 para ejecutar Gradle y JDK 21 para compilar el backend con el toolchain de Gradle. La app requiere SDK 37 y un emulador con API 33 o posterior. La primera ejecución de Gradle puede necesitar internet.
 
-Usa el JAR de la entrega o genera uno desde la carpeta `backend`:
-
-```powershell
-.\mvnw.cmd clean package
-```
-
-Desde una misma carpeta de trabajo, abre dos terminales y ejecuta un comando en cada una. Si compilaste el proyecto, el JAR está en `backend/target`.
+Abre dos terminales en la raíz del proyecto y ejecuta un comando en cada una. Ambos servicios usarán la carpeta `datos` de la raíz.
 
 ```powershell
-java -jar gestion-escolar-1.0.0.jar --spring.profiles.active=salas
+.\gradlew.bat :backend:bootRun --args="--spring.profiles.active=salas"
 ```
 
 ```powershell
-java -jar gestion-escolar-1.0.0.jar --spring.profiles.active=reservas
+.\gradlew.bat :backend:bootRun --args="--spring.profiles.active=reservas"
 ```
+
+También puedes generar el JAR ejecutable con `.\gradlew.bat :backend:bootJar`. Queda en `backend/build/libs/gestion-escolar-1.0.0.jar` y acepta los mismos argumentos de perfil con `java -jar`.
 
 Verifica el arranque:
 
@@ -52,7 +49,9 @@ Si tienes otra versión con el mismo identificador y una firma distinta, usa un 
 
 ## Roles y demostración
 
-Las nuevas cuentas quedan como **Sin rol asignado**. Los invitados y las cuentas sin rol pueden consultar disponibilidad. Los **docentes** pueden solicitar una clase y cancelar sus propias reservas. Los **inspectores** pueden agregar o modificar nombre, capacidad y ubicación de una sala en «En red». Las solicitudes existentes guardan el nombre que tenía la sala al reservar.
+Las cuentas nuevas reciben el rol **Docente** al iniciar sesión y conectar con el servicio de salas. Los docentes pueden solicitar una sala y cancelar sus propias solicitudes. Los inspectores pueden aprobar, editar o cancelar solicitudes en ambos modos de reserva. Una solicitud pendiente no bloquea la sala. Al aprobarla se verifican los cruces otra vez. La sala figura ocupada durante el bloque aprobado.
+
+En **Cuentas**, el Inspector puede actualizar el nombre y correo de las cuentas registradas en el dispositivo. Puede asignar o revocar roles desde una cuenta local o pegar la credencial de una cuenta registrada en otro dispositivo. El servidor impide que el Inspector revoque su propio rol desde la app.
 
 Para habilitar una cuenta, entra en **Perfil → Ver credencial de rol** y entrega esa credencial solo a la persona que administra el servidor. Desde la carpeta de trabajo donde se iniciaron ambos servicios, ejecuta el script de administración del código fuente. El script pide la credencial sin mostrarla.
 
@@ -63,7 +62,9 @@ Para habilitar una cuenta, entra en **Perfil → Ver credencial de rol** y entre
 
 Usa el comando correspondiente a la cuenta. Para revocar el acceso, ejecuta el mismo script con `-Rol SIN_ROL`. Si iniciaste los servicios con un directorio de datos personalizado, pásalo también al script mediante `-DirectorioDatos`. Los dos servicios leen ese mismo directorio y aplican el cambio cuando la app pulsa **Actualizar**. En Android 17 permite la red local si se solicita.
 
-Primero prueba el alta y la edición con una cuenta inspectora. Luego inicia sesión con una cuenta docente, selecciona la sala y solicita una clase. Comprueba que la app rechaza cruces en la misma fecha y que puedes cancelar tu propia reserva. Selecciona el 25 de diciembre para consultar el aviso de feriado.
+El rol Inspector queda guardado sin vencimiento en `datos/roles.json`. Cerrar sesión o reiniciar el servidor conserva el rol mientras la cuenta local y el archivo de roles se mantengan.
+
+Inicia sesión con una cuenta docente y solicita una sala disponible. Luego inicia sesión con una cuenta inspectora usando el mismo botón **Entrar** y pulsa **Aprobar reserva**. El servicio de salas debe estar activo para verificar el rol.
 
 Para otro destino, puedes recompilar con los parámetros Gradle `-PsalasUrl=https://...` y `-PreservasUrl=https://...`. Para un dispositivo conectado por USB puedes usar `adb reverse tcp:8081 tcp:8081` y `adb reverse tcp:8082 tcp:8082`, y compilar con URLs `http://127.0.0.1` en los puertos correspondientes.
 
@@ -74,20 +75,21 @@ Para otro destino, puedes recompilar con los parámetros Gradle `-PsalasUrl=http
 | `GET /api/salas` | 8081 | Catálogo de salas |
 | `GET /api/salas/{id}` | 8081 | Datos de una sala o 404 |
 | `GET /api/salas/rol` | 8081 | Devuelve el rol de la credencial enviada. |
+| `PUT /api/salas/rol` | 8081 | Asigna `rol` a una `credencial`. Requiere rol inspector. |
+| `POST /api/salas/rol/docente` | 8081 | Da de alta una credencial nueva como Docente. Conserva los roles existentes, incluidas las revocaciones. |
 | `POST /api/salas` | 8081 | Crea una sala con `nombre`, `capacidad` y `ubicacion`. Requiere rol inspector. |
 | `PUT /api/salas/{id}` | 8081 | Modifica una sala existente. Requiere rol inspector. |
 | `GET /api/reservas` | 8082 | Lista pública sin datos personales. La cabecera opcional `X-Reserva-Token` permite identificar reservas propias. |
 | `POST /api/reservas` | 8082 | Crea con `salaId`, `fecha` en ISO, `inicio` y `fin` en `HH:mm`. Requiere `X-Reserva-Token` con rol docente. Retorna 201, 400 por datos inválidos, 404 por sala inexistente, 409 por cruce o 503 si salas no está disponible. |
-| `DELETE /api/reservas/{id}` | 8082 | Cancela con la credencial docente de quien creó la reserva. Retorna 204 o 404. |
-
-Android consulta `GET https://nagerholidays.com/api/v4/Holidays/CL/{año}` y filtra por la fecha seleccionada y `nationalHoliday`. La reserva puede continuar si falla la consulta de feriados. [Documentación de Nager.Date](https://github.com/nager/Nager.Date#rest-api)
+| `PUT /api/reservas/{id}` | 8082 | Cambia sala, fecha u horario y conserva al propietario. Requiere rol inspector. |
+| `PUT /api/reservas/{id}/aprobar` | 8082 | Confirma una solicitud pendiente si el bloque está libre. Requiere rol inspector. |
+| `PUT /api/reservas/{id}/rechazar` | 8082 | Rechaza una solicitud pendiente y conserva el resultado para su propietario. Requiere rol inspector. |
+| `DELETE /api/reservas/{id}` | 8082 | Inspector puede cancelar cualquier reserva. Docente puede cancelar la propia. Retorna 204 o 404. |
 
 ## Pruebas y compilación
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest
-cd backend
-.\mvnw.cmd test
+.\gradlew.bat :app:testDebugUnitTest :backend:test
 ```
 
 Las pruebas Android cubren validaciones de RUT y confirmación de contraseña. Las de Spring comprueban cruces, bloques contiguos y el mismo horario en otra sala o fecha.
